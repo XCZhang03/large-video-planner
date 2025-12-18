@@ -3,6 +3,11 @@
 # Large Video Planner Enables Generalizable Robot Control
 
 This repo provides training and inference code for the paper "Large Video Planner Enables Generalizable Robot Control"
+
+[Project Webpage](https://www.boyuan.space/large-video-planner/) &nbsp;
+[Hugging Face Demo](https://huggingface.co/spaces/KempnerInstituteAI/LVP)
+
+
 </div>
 
 
