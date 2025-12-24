@@ -27,6 +27,21 @@ def sinusoidal_embedding_1d(dim, position):
     x = torch.cat([torch.cos(sinusoid), torch.sin(sinusoid)], dim=1)
     return x
 
+class RopeFreqsWrapper:
+    def __init__(self, freqs, shift=None):
+        self.freqs = freqs
+        self.shift = shift
+
+    def apply(self, x, grid_sizes):
+        if self.shift is not None:
+            # apply pos embedding separately for video and cond
+            assert self.shift == False, "only support shift=False for now"
+            x1, x2 = x.chunk(2, dim=1)
+            x1_applied, x2_applied = rope_apply(x1, grid_sizes, self.freqs), rope_apply(x2, grid_sizes, self.freqs, shift=self.shift)
+            x = torch.cat([x1_applied, x2_applied], dim=1)
+            return x
+        else:
+            return rope_apply(x, grid_sizes, self.freqs)
 
 # @amp.autocast("cuda", enabled=False)
 def rope_params(max_seq_len, dim, theta=10000):
@@ -40,7 +55,7 @@ def rope_params(max_seq_len, dim, theta=10000):
 
 
 # @amp.autocast("cuda", enabled=False)
-def rope_apply(x, grid_sizes, freqs):
+def rope_apply(x, grid_sizes, freqs, shift=False):
     n, c = x.size(2), x.size(3) // 2
 
     # split freqs
@@ -50,6 +65,7 @@ def rope_apply(x, grid_sizes, freqs):
     output = []
     for i, (f, h, w) in enumerate(grid_sizes.tolist()):
         seq_len = f * h * w
+        assert seq_len == x.size(1)
 
         # precompute multipliers
         x_i = torch.view_as_complex(
@@ -57,7 +73,7 @@ def rope_apply(x, grid_sizes, freqs):
         )
         freqs_i = torch.cat(
             [
-                freqs[0][:f].view(f, 1, 1, -1).expand(f, h, w, -1),
+                (freqs[0][:f] if not shift else freqs[0][512:512+f]).view(f, 1, 1, -1).expand(f, h, w, -1),
                 freqs[1][:h].view(1, h, 1, -1).expand(f, h, w, -1),
                 freqs[2][:w].view(1, 1, w, -1).expand(f, h, w, -1),
             ],
@@ -143,10 +159,13 @@ class WanSelfAttention(nn.Module):
             return q, k, v
 
         q, k, v = qkv_fn(x)
+        assert k.size(1) == seq_lens.max() == seq_lens.min()
 
         x = flash_attention(
-            q=rope_apply(q, grid_sizes, freqs),
-            k=rope_apply(k, grid_sizes, freqs),
+            # q=rope_apply(q, grid_sizes, freqs),
+            # k=rope_apply(k, grid_sizes, freqs),
+            q = freqs.apply(q, grid_sizes),
+            k = freqs.apply(k, grid_sizes),
             v=v,
             k_lens=seq_lens,
             window_size=self.window_size,
@@ -502,6 +521,7 @@ class WanModel(ModelMixin, ConfigMixin):
             ],
             dim=1,
         )
+        self.freqs_wrapper = RopeFreqsWrapper(self.freqs, shift=None)
 
         if model_type == "i2v":
             self.img_emb = MLPProj(1280, dim)
@@ -533,6 +553,7 @@ class WanModel(ModelMixin, ConfigMixin):
         seq_len,
         clip_fea=None,
         y=None,
+        cond=None,
     ):
         r"""
         Forward pass through the diffusion model
@@ -556,16 +577,22 @@ class WanModel(ModelMixin, ConfigMixin):
             List[Tensor]:
                 List of denoised video tensors with original input shapes [C_out, F, H / 8, W / 8]
         """
+        concat_cond = False
+        if cond is not None:
+            concat_cond = True
+        
         n_frames = x.shape[2]
         if self.model_type == "i2v":
             assert clip_fea is not None and y is not None
         # params
         device = self.patch_embedding.weight.device
-        if self.freqs.device != device:
-            self.freqs = self.freqs.to(device)
+        if self.freqs_wrapper.freqs.device != device:
+            self.freqs_wrapper.freqs = self.freqs_wrapper.freqs.to(device)
 
         if y is not None:
             x = [torch.cat([u, v], dim=0) for u, v in zip(x, y)]
+            if concat_cond:
+                cond = [torch.cat([u, v], dim=0) for u, v in zip(cond, y)]
 
         # embeddings
         x = [self.patch_embedding(u.unsqueeze(0)) for u in x]
@@ -574,13 +601,26 @@ class WanModel(ModelMixin, ConfigMixin):
         )
         x = [u.flatten(2).transpose(1, 2) for u in x]
         seq_lens = torch.tensor([u.size(1) for u in x], dtype=torch.long)
-        assert seq_lens.max() <= seq_len
-        x = torch.cat(
-            [
-                torch.cat([u, u.new_zeros(1, seq_len - u.size(1), u.size(2))], dim=1)
-                for u in x
-            ]
-        )
+        # assert seq_lens.max() <= seq_len
+        assert all(u.size(1) == seq_len for u in x)
+
+        if concat_cond:
+            x_cond = [self.patch_embedding(u.unsqueeze(0)) for u in cond]
+            x_cond = [u.flatten(2).transpose(1, 2) for u in x_cond]
+            seq_lens = seq_lens * 2
+            x = torch.cat(
+                [
+                    torch.cat([u, v, u.new_zeros(1, seq_len * 2  - u.size(1) - v.size(1), u.size(2))], dim=1) 
+                    for u, v in zip(x, x_cond)
+                ]
+            )
+        else:
+            x = torch.cat(
+                [
+                    torch.cat([u, u.new_zeros(1, seq_len - u.size(1), u.size(2))], dim=1)
+                    for u in x
+                ]
+            )
 
         # time embeddings
         # with amp.autocast("cuda", dtype=torch.float32):
@@ -592,6 +632,9 @@ class WanModel(ModelMixin, ConfigMixin):
             e = e.unflatten(dim=0, sizes=t_shape)
         else:
             e = repeat(e, "b c -> b f c", f=n_frames)
+        if concat_cond:
+            e = torch.cat([e, e], dim=1)
+            self.freqs_wrapper.shift = False
         e0 = self.time_projection(e).unflatten(-1, (6, self.dim))
         # assert e.dtype == torch.float32 and e0.dtype == torch.float32
 
@@ -615,7 +658,7 @@ class WanModel(ModelMixin, ConfigMixin):
             e=e0,
             seq_lens=seq_lens,
             grid_sizes=grid_sizes,
-            freqs=self.freqs,
+            freqs=self.freqs_wrapper,
             context=context,
             context_lens=context_lens,
         )
@@ -629,6 +672,9 @@ class WanModel(ModelMixin, ConfigMixin):
 
         # head
         x = self.head(x, e)
+
+        if concat_cond:
+            x = x.chunk(2, dim=1)[0]
 
         # unpatchify
         x = self.unpatchify(x, grid_sizes)
@@ -653,6 +699,7 @@ class WanModel(ModelMixin, ConfigMixin):
         c = self.out_dim
         out = []
         for u, v in zip(x, grid_sizes.tolist()):
+            assert u.size(0) == math.prod(v), f"{u.size} vs {v}"
             u = u[: math.prod(v)].view(*v, *self.patch_size, c)
             u = torch.einsum("fhwpqrc->cfphqwr", u)
             u = u.reshape(c, *[i * j for i, j in zip(v, self.patch_size)])

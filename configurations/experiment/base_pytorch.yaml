@@ -7,7 +7,7 @@ defaults:
 
 tasks: [training] # tasks to run sequantially, change when your project has multiple stages and you want to run only a openx of them.
 num_nodes: 1 # number of gpu servers used in large scale distributed training
-strategy: fsdp # distributed strategy to use, options: ddp, deepspeed_stage_2, fsdp
+strategy: ddp # distributed strategy to use, options: ddp, deepspeed_stage_2, fsdp
 
 training:
   precision: 16-mixed # set float precision, 16-mixed is faster while 32 is more stable
@@ -25,7 +25,7 @@ training:
     gradient_clip_val: 5.0 # clip gradients with norm above this value, set to 0 to disable
   checkpointing:
     # these are arguments to pytorch lightning's callback, `ModelCheckpoint` class
-    every_n_train_steps: 5000 # save a checkpoint every n train steps
+    every_n_train_steps: 500 # save a checkpoint every n train steps
     every_n_epochs: null # mutually exclusive with ``every_n_train_steps`` and ``train_time_interval``
     train_time_interval: null # in format of "00:12:00:00", mutually exclusive with ``every_n_train_steps`` and ``every_n_epochs``.
     enable_version_counter: False # If this is ``False``, later checkpoint will be overwrite previous ones.

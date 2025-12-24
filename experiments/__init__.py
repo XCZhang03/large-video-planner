@@ -18,12 +18,14 @@ def build_experiment(
     cfg: DictConfig,
     logger: Optional[WandbLogger] = None,
     ckpt_path: Optional[Union[str, pathlib.Path]] = None,
+    load_model_only: bool = False,
 ) -> BaseExperiment:
     """
     Build an experiment instance based on registry
     :param cfg: configuration file
     :param logger: optional logger for the experiment
     :param ckpt_path: optional checkpoint path for saving and loading
+    :param load_model_only: whether to only load the model weights from checkpoint
     :return:
     """
     if cfg.experiment._name not in exp_registry:

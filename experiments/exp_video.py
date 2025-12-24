@@ -3,7 +3,7 @@ from torch.distributed.fsdp import MixedPrecision
 from torch.distributed.fsdp.wrap import ModuleWrapPolicy
 
 # from algorithms.cogvideo import CogVideoXImageToVideo, CogVideoXVAE
-from algorithms.wan import WanImageToVideo, WanTextToVideo
+from algorithms.wan import WanImageToVideo, WanTextToVideo, WanActionImageToVideo, WanActionTextToVideo
 from datasets.dummy import DummyVideoDataset
 from datasets.openx_base import OpenXVideoDataset
 from datasets.droid import DroidVideoDataset
@@ -14,6 +14,7 @@ from datasets.ego4d import Ego4DVideoDataset
 from datasets.agibot_world import AgibotWorldDataset
 from datasets.mixture import MixtureDataset
 from datasets.video_base import SingleFrameVideoDataset
+from datasets.robosuite import RobosuiteDataset
 from .exp_base import BaseLightningExperiment
 
 
@@ -28,6 +29,8 @@ class VideoPredictionExperiment(BaseLightningExperiment):
         wan_i2v=WanImageToVideo,
         wan_t2v=WanTextToVideo,
         wan_toy=WanImageToVideo,
+        wan_ai2v=WanActionImageToVideo,
+        wan_at2v=WanActionTextToVideo,
     )
 
     compatible_datasets = dict(
@@ -43,6 +46,7 @@ class VideoPredictionExperiment(BaseLightningExperiment):
         agibot_world=AgibotWorldDataset,
         language_table=OpenXVideoDataset,
         ours_test=SingleFrameVideoDataset,
+        robosuite=RobosuiteDataset,
         # austin_buds=OpenXVideoDataset,
         # austin_sailor=OpenXVideoDataset,
         # austin_sirius=OpenXVideoDataset,

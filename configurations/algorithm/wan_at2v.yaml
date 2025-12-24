@@ -1,0 +1,9 @@
+defaults:
+  - wan_t2v
+  - _self_
+
+diffusion_forcing:
+  cond_mode: seq
+
+model:
+  hist_len: 5

@@ -46,8 +46,8 @@ class VideoDataset(Dataset):
 
         # trigger auto-download if not already downloaded
         trigger_download = False
-        if not self.data_root.is_dir():
-            print(f"Dataset root folder {self.data_root} does not exist.")
+        if not self.data_root.is_dir() or not (self.data_root / self.metadata_path).is_file():
+            # print(f"Dataset root folder {self.data_root} does not exist.")
             if not self.auto_download:
                 raise ValueError(
                     f"Attempting to automatically download the dataset since dataset root folder {self.data_root} does not exist. "
@@ -159,6 +159,7 @@ class VideoDataset(Dataset):
         prompt_embed_len = None
         if self.load_prompt_embed:
             prompt_embeds, prompt_embed_len = self._load_prompt_embed(record)
+            negative_prompt_embeds, negative_prompt_embed_len = self._load_prompt_embed(record, negative=True)
 
         has_bbox, bbox_render = self._render_bbox(record)
 
@@ -177,6 +178,9 @@ class VideoDataset(Dataset):
         if prompt_embeds is not None:
             output["prompt_embeds"] = prompt_embeds
             output["prompt_embed_len"] = prompt_embed_len
+        if negative_prompt_embeds is not None:
+            output["negative_prompt_embeds"] = negative_prompt_embeds
+            output["negative_prompt_embed_len"] = negative_prompt_embed_len
         if image_latents is not None:
             output["image_latents"] = image_latents
         if video_latents is not None:
@@ -427,13 +431,21 @@ class VideoDataset(Dataset):
 
         return image_latent, video_latent
 
-    def _load_prompt_embed(self, record: Dict[str, Any]) -> torch.Tensor:
+    def _load_prompt_embed(self, record: Dict[str, Any], negative=False) -> torch.Tensor:
         # if self.debug:
         #     return torch.zeros(self.max_text_tokens, 4096), self.max_text_tokens
-
-        if "prompt_embed_path" not in record:
-            raise ValueError("Record missing required key 'prompt_embed_path'")
-        prompt_embed_path = self.data_root / record["prompt_embed_path"]
+        if negative:
+            if "negative_prompt_embed_path" not in record:
+                raise ValueError(
+                    "Record missing required key 'negative_prompt_embed_path'"
+                )
+            prompt_embed_path = self.data_root / record[
+                "negative_prompt_embed_path"
+            ]
+        else:
+            if "prompt_embed_path" not in record:
+                raise ValueError("Record missing required key 'prompt_embed_path'")
+            prompt_embed_path = self.data_root / record["prompt_embed_path"]
         prompt_embed = torch.load(
             prompt_embed_path, map_location="cpu", weights_only=True
         )

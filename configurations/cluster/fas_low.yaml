@@ -1,6 +1,0 @@
-defaults:
-  - fas_high
-  - _self_
-
-params:
-  partition: kempner_requeue

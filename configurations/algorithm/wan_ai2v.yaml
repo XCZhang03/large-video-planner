@@ -1,0 +1,6 @@
+defaults:
+  - wan_i2v
+  - _self_
+
+diffusion_forcing:
+  cond_mode: channel

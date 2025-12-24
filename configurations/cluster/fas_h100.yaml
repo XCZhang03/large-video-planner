@@ -3,18 +3,19 @@ defaults:
   - _self_
 params:
   partition: kempner_h100 # e.g. kempner_h100
-  account: kempner_sham_lab # e.g. kempner_sham_lab
+  account: kempner_ydu_lab # e.g. kempner_sham_lab
   env_name: ei_world_model
   num_gpus: 4
   num_cpus: 48
   memory: 256G
-  time: "3-00:00:00" 
+  time: "0-12:00:00" 
 
 launch_template: |
   #!/bin/bash
   #SBATCH -J {name}
   #SBATCH -o {log_dir}/out_%j.out
   #SBATCH -e {log_dir}/error_%j.err
+  #SBATCH --open-mode=append
   #SBATCH --mail-user={email}
   #SBATCH --mail-type=FAIL
   #SBATCH --account={account}
@@ -29,10 +30,10 @@ launch_template: |
   # export NCCL_DEBUG=INFO
   # export PYTHONFAULTHANDLER=1
 
-  cd {project_root}
-  module load Mambaforge
-  mamba deactivate
+  module load python
   mamba activate {env_name}
+  cd {project_root}
   module load cuda/12.4.1-fasrc01
   module load gcc/9.5.0-fasrc01
+  export HYDRA_FULL_ERROR=1
   srun python -m main {python_args} 

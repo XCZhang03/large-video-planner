@@ -56,6 +56,8 @@ class WanTextToVideo(BasePytorchAlgo):
         self.patch_size = cfg.model.patch_size
         self.diffusion_type = cfg.diffusion_type  # "discrete"  # or "continuous"
 
+        self.hist_len = cfg.model.get("hist_len", 1)
+
         self.lat_h = self.height // self.vae_stride[1]
         self.lat_w = self.width // self.vae_stride[2]
         self.lat_t = 1 + (self.n_frames - 1) // self.vae_stride[0]
@@ -302,10 +304,17 @@ class WanTextToVideo(BasePytorchAlgo):
             prompt_embed_len = batch["prompt_embed_len"]
             prompt_embeds = [u[:v] for u, v in zip(prompt_embeds, prompt_embed_len)]
 
+            negative_prompt_embeds = batch["negative_prompt_embeds"].to(self.dtype)
+            negative_prompt_embed_len = batch["negative_prompt_embed_len"]
+            negative_prompt_embeds = [
+                u[:v] for u, v in zip(negative_prompt_embeds, negative_prompt_embed_len)
+            ]
+
         video_lat = self.encode_video(rearrange(videos, "b t c h w -> b c t h w"))
         # video_lat ~ (b, lat_c, lat_t, lat_h, lat_w
 
         batch["prompt_embeds"] = prompt_embeds
+        batch["negative_prompt_embeds"] = negative_prompt_embeds
         batch["video_lat"] = video_lat
         batch["image_embeds"] = None
         batch["clip_embeds"] = None
@@ -464,13 +473,14 @@ class WanTextToVideo(BasePytorchAlgo):
         return loss
 
     @torch.no_grad()
-    def sample_seq(self, batch, hist_len=1, pbar=None):
+    def sample_seq(self, batch, hist_len=None, pbar=None):
         """
         Main sampling loop. Only first hist_len frames are used for conditioning
         batch: dict
             batch["videos"]: [B, T, C, H, W]
             batch["prompts"]: [B]
         """
+        hist_len = hist_len if hist_len is not None else self.hist_len
         if (hist_len - 1) % self.vae_stride[0] != 0:
             raise ValueError(
                 "hist_len - 1 must be a multiple of vae_stride[0] due to temporal vae. "
@@ -492,9 +502,13 @@ class WanTextToVideo(BasePytorchAlgo):
 
         video_pred_lat = torch.randn_like(video_lat)
         if self.lang_guidance:
-            neg_prompt_embeds = self.encode_text(
-                [self.neg_prompt] * len(batch["prompts"])
-            )
+            if not self.cfg.load_prompt_embed:
+                neg_prompt_embeds = self.encode_text(
+                    [self.neg_prompt] * len(batch["prompts"])
+                )
+            else:
+                neg_prompt_embeds = batch["negative_prompt_embeds"]
+
         if pbar is None:
             pbar = tqdm(range(len(self.inference_timesteps)), desc="Sampling")
         for t in self.inference_timesteps:

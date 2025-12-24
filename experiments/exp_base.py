@@ -9,6 +9,7 @@ from abc import ABC
 from typing import Optional, Union, Dict
 import os
 from pathlib import Path
+import hydra
 
 import torch
 import wandb
@@ -18,10 +19,19 @@ from omegaconf import DictConfig, OmegaConf
 from omegaconf import DictConfig
 
 from utils.print_utils import cyan
-from utils.distributed_utils import is_rank_zero
+from utils.distributed_utils import is_rank_zero, rank_zero_print
+
+import lightning.pytorch as pl
+from lightning.pytorch.loggers.wandb import WandbLogger
+from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
+
 
 torch.set_float32_matmul_precision("high")
 
+class ModelCheckpointLink(ModelCheckpoint):
+    def on_exception(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule", exception: BaseException) -> None:
+        super().on_exception(trainer, pl_module, exception)
+        trainer.logger._scan_and_log_checkpoints(self)
 
 class BaseExperiment(ABC):
     """
@@ -35,7 +45,7 @@ class BaseExperiment(ABC):
     def __init__(
         self,
         root_cfg: DictConfig,
-        output_dir: Optional[Union[str, Path]],
+        logger: Optional[WandbLogger] = None,
         ckpt_path: Optional[Union[str, Path]] = None,
     ) -> None:
         """
@@ -48,25 +58,19 @@ class BaseExperiment(ABC):
         """
         super().__init__()
         self.root_cfg = root_cfg
-        self.output_dir = Path(output_dir)
+        self.output_dir = Path(
+                        hydra.core.hydra_config.HydraConfig.get()["runtime"][
+                            "output_dir"
+                        ]
+                    )
         self.ckpt_path = Path(ckpt_path) if ckpt_path else None
 
         self.cfg = root_cfg.experiment
         self.debug = root_cfg.debug
 
         # some tasks doesn't need logger or algo (e.g. download dataset) so leave for None for now
-        self.logger = None
-        self.algo = None
-
-    def _build_logger(self):
-        wandb.init(
-            name=self.root_cfg.name,
-            config=OmegaConf.to_container(self.root_cfg),
-            project=self.root_cfg.wandb.project,
-            entity=self.root_cfg.wandb.entity,
-            mode=self.root_cfg.wandb.mode,
-        )
-        return wandb
+        self.logger = logger
+        self.algo = None        
 
     def _build_algo(self):
         """
@@ -231,43 +235,6 @@ class BaseLightningExperiment(BasePytorchExperiment):
     has good support
     """
 
-    def _build_logger(self):
-        from utils.wandb_utils import OfflineWandbLogger, SpaceEfficientWandbLogger
-
-        output_dir = Path(self.output_dir)
-        wandb_cfg = self.root_cfg.wandb
-
-        # Set up logging with wandb.
-        if wandb_cfg.mode != "disabled":
-            # If resuming, merge into the existing run on wandb.
-            resume = self.root_cfg.get("resume", None)
-            name = (
-                f"{self.root_cfg.name} ({output_dir.parent.name}/{output_dir.name})"
-                if resume is None
-                else None
-            )
-
-            if (
-                "_on_compute_node" in self.root_cfg
-                and self.root_cfg.cluster.is_compute_node_offline
-            ):
-                logger_cls = OfflineWandbLogger
-            else:
-                logger_cls = SpaceEfficientWandbLogger
-
-            self.logger = logger_cls(
-                name=name,
-                save_dir=str(output_dir),
-                offline=wandb_cfg.mode != "online",
-                project=wandb_cfg.project,
-                log_model=wandb_cfg.log_model,
-                config=OmegaConf.to_container(self.root_cfg),
-                id=resume,
-                entity=wandb_cfg.entity,
-            )
-
-        return self.logger
-
     def seed_everything(self):
         from lightning.pytorch import seed_everything
 
@@ -277,10 +244,6 @@ class BaseLightningExperiment(BasePytorchExperiment):
         """
         All training happens here
         """
-        import lightning.pytorch as pl
-
-        from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
-
         self.seed_everything()
 
         if not self.algo:
@@ -288,15 +251,12 @@ class BaseLightningExperiment(BasePytorchExperiment):
         if self.cfg.training.compile:
             self.algo = torch.compile(self.algo)
 
-        if not self.logger:
-            self._build_logger()
-
         callbacks = []
         # if self.logger:
         #     callbacks.append(LearningRateMonitor("step", True))
         if "checkpointing" in self.cfg.training:
             callbacks.append(
-                ModelCheckpoint(
+                ModelCheckpointLink(
                     self.output_dir / "checkpoints",
                     **self.cfg.training.checkpointing,
                 )
@@ -316,11 +276,11 @@ class BaseLightningExperiment(BasePytorchExperiment):
             accumulate_grad_batches=self.cfg.training.optim.accumulate_grad_batches,
             precision=self.cfg.training.precision,
             detect_anomaly=False,  # self.cfg.debug,
-            num_sanity_val_steps=int(self.cfg.debug),
+            num_sanity_val_steps=1,
             max_epochs=self.cfg.training.max_epochs,
             max_steps=self.cfg.training.max_steps,
             max_time=self.cfg.training.max_time,
-            deterministic=True,
+            # deterministic=True,
         )
 
         # if self.debug:
@@ -331,13 +291,13 @@ class BaseLightningExperiment(BasePytorchExperiment):
             train_dataloaders=self._build_training_loader(),
             val_dataloaders=self._build_validation_loader(),
             ckpt_path=self.ckpt_path,
+            weights_only=False
         )
 
     def validation(self) -> None:
         """
         All validation happens here
         """
-        import lightning.pytorch as pl
 
         self.seed_everything()
 
@@ -378,7 +338,6 @@ class BaseLightningExperiment(BasePytorchExperiment):
         """
         All testing happens here
         """
-        import lightning.pytorch as pl
 
         # self.seed_everything()
 

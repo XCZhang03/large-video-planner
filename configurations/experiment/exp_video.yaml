@@ -13,8 +13,10 @@ training:
   checkpointing:
     every_n_train_steps: 2000
     every_n_epochs: null
-    save_weights_only: true
+    save_weights_only: false
     filename: "latest"
+    save_on_exception: true
+    save_last: link
   optim:
     accumulate_grad_batches: 4
     gradient_clip_val: null
@@ -26,9 +28,9 @@ validation:
   val_every_n_step: 1000
   val_every_n_epoch: null
   batch_size: 1
-  limit_batch: 1
+  limit_batch: 4
   data:
-    num_workers: 1 # number of CPU threads for data preprocessing, for validation.
+    num_workers: 3 # number of CPU threads for data preprocessing, for validation.
 
 test:
   precision: bf16-mixed
