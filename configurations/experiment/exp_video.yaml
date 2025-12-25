@@ -7,18 +7,17 @@ tasks: [training]
 training:
   lr: 1e-5
   precision: bf16-mixed
-  batch_size: 1
+  batch_size: 2
   max_epochs: -1
   max_steps: 10000000
   checkpointing:
-    every_n_train_steps: 2000
+    every_n_train_steps: 500
     every_n_epochs: null
     save_weights_only: false
-    filename: "latest"
     save_on_exception: true
     save_last: link
   optim:
-    accumulate_grad_batches: 4
+    accumulate_grad_batches: 8
     gradient_clip_val: null
   data:
       num_workers: 5 # number of CPU threads for data preprocessing.

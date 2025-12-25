@@ -8,7 +8,7 @@ params:
   num_gpus: 4
   num_cpus: 48
   memory: 256G
-  time: "2-00:00:00" 
+  time: "1-00:00:00" 
 
 launch_template: |
   #!/bin/bash

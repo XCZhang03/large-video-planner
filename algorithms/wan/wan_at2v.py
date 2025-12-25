@@ -6,6 +6,8 @@ from transformers import get_scheduler
 from .modules.clip import clip_xlm_roberta_vit_h_14
 from .wan_t2v import WanTextToVideo
 
+import time
+
 
 
 class WanActionTextToVideo(WanTextToVideo):
@@ -51,7 +53,7 @@ class WanActionTextToVideo(WanTextToVideo):
         )
         loss = torch.nn.functional.mse_loss(flow_pred, flow)
         if self.global_step % 100 <= 2:
-            print("step", self.global_step, "loss:", loss.item(), flush=True)
+            print(f"[Time] [{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}] [Step] {self.global_step}")
         if self.global_step % self.cfg.logging.loss_freq == 0:
             self.log("train/loss", loss, sync_dist=False, on_step=True, logger=True)
 
