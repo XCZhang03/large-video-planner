@@ -56,7 +56,7 @@ class WanTextToVideo(BasePytorchAlgo):
         self.patch_size = cfg.model.patch_size
         self.diffusion_type = cfg.diffusion_type  # "discrete"  # or "continuous"
 
-        self.hist_len = cfg.model.get("hist_len", 1)
+        self.hist_len = cfg.get("hist_len", 1)
 
         self.lat_h = self.height // self.vae_stride[1]
         self.lat_w = self.width // self.vae_stride[2]
@@ -218,7 +218,7 @@ class WanTextToVideo(BasePytorchAlgo):
             self.cfg.model.tuned_ckpt_path,
             mmap=True,
             map_location="cpu",
-            weights_only=True,
+            weights_only=False,
         )
         state_dict = {
             k[len(prefix) :]: v
@@ -284,21 +284,15 @@ class WanTextToVideo(BasePytorchAlgo):
         return new_batch
 
     @torch.no_grad()
-    def prepare_embeds(self, batch):
-        videos = batch["videos"]
+    def prepare_language_embed(self, batch, encode_negative_prompt=False, **kwargs):
         prompts = batch["prompts"]
-
-        batch_size, t, _, h, w = videos.shape
-
-        if t != self.n_frames:
-            raise ValueError(f"Number of frames in videos must be {self.n_frames}")
-        if h != self.height or w != self.width:
-            raise ValueError(
-                f"Height and width of videos must be {self.height} and {self.width}"
-            )
 
         if not self.cfg.load_prompt_embed:
             prompt_embeds = self.encode_text(prompts)
+            if encode_negative_prompt:
+                negative_prompt_embeds = self.encode_text(
+                    [self.neg_prompt] * len(batch["prompts"])
+                )
         else:
             prompt_embeds = batch["prompt_embeds"].to(self.dtype)
             prompt_embed_len = batch["prompt_embed_len"]
@@ -310,12 +304,34 @@ class WanTextToVideo(BasePytorchAlgo):
                 u[:v] for u, v in zip(negative_prompt_embeds, negative_prompt_embed_len)
             ]
 
-        video_lat = self.encode_video(rearrange(videos, "b t c h w -> b c t h w"))
-        # video_lat ~ (b, lat_c, lat_t, lat_h, lat_w
-
         batch["prompt_embeds"] = prompt_embeds
         batch["negative_prompt_embeds"] = negative_prompt_embeds
+
+        return batch
+    
+    @torch.no_grad()
+    def prepare_video_embeds(self, batch, **kwargs):
+        videos = batch["videos"]
+        batch_size, t, _, h, w = videos.shape
+
+        if t != self.n_frames:
+            raise ValueError(f"Number of frames in videos must be {self.n_frames}")
+        if h != self.height or w != self.width:
+            raise ValueError(
+                f"Height and width of videos must be {self.height} and {self.width}"
+            )
+
+        video_lat = self.encode_video(rearrange(videos, "b t c h w -> b c t h w"))
+        # video_lat ~ (b, lat_c, lat_t, lat_h, lat_w
         batch["video_lat"] = video_lat
+
+        return batch
+
+
+    @torch.no_grad()
+    def prepare_embeds(self, batch, **kwargs):
+        batch = self.prepare_video_embeds(batch, **kwargs)
+        batch = self.prepare_language_embed(batch, **kwargs)
         batch["image_embeds"] = None
         batch["clip_embeds"] = None
 
@@ -473,14 +489,13 @@ class WanTextToVideo(BasePytorchAlgo):
         return loss
 
     @torch.no_grad()
-    def sample_seq(self, batch, hist_len=None, pbar=None):
+    def sample_seq(self, batch, hist_len=1, pbar=None):
         """
         Main sampling loop. Only first hist_len frames are used for conditioning
         batch: dict
             batch["videos"]: [B, T, C, H, W]
             batch["prompts"]: [B]
         """
-        hist_len = hist_len if hist_len is not None else self.hist_len
         if (hist_len - 1) % self.vae_stride[0] != 0:
             raise ValueError(
                 "hist_len - 1 must be a multiple of vae_stride[0] due to temporal vae. "
@@ -492,7 +507,7 @@ class WanTextToVideo(BasePytorchAlgo):
         lang_guidance = self.lang_guidance if self.lang_guidance else 0
         hist_guidance = self.hist_guidance if self.hist_guidance else 0
 
-        batch = self.prepare_embeds(batch)
+        batch = self.prepare_embeds(batch, encode_negative_prompt=lang_guidance > 0)
         clip_embeds = batch["clip_embeds"]
         image_embeds = batch["image_embeds"]
         prompt_embeds = batch["prompt_embeds"]
@@ -502,12 +517,7 @@ class WanTextToVideo(BasePytorchAlgo):
 
         video_pred_lat = torch.randn_like(video_lat)
         if self.lang_guidance:
-            if not self.cfg.load_prompt_embed:
-                neg_prompt_embeds = self.encode_text(
-                    [self.neg_prompt] * len(batch["prompts"])
-                )
-            else:
-                neg_prompt_embeds = batch["negative_prompt_embeds"]
+            neg_prompt_embeds = batch["negative_prompt_embeds"]
 
         if pbar is None:
             pbar = tqdm(range(len(self.inference_timesteps)), desc="Sampling")
@@ -579,34 +589,36 @@ class WanTextToVideo(BasePytorchAlgo):
 
     def validation_step(self, batch, batch_idx=None):
         video_pred = self.sample_seq(batch)
-        self.visualize(video_pred, batch)
+        self.visualize(video_pred, batch, batch_idx)
 
-    def visualize(self, video_pred, batch):
+    def visualize(self, video_pred, batch, batch_idx=None):
         video_gt = batch["videos"]
 
-        if self.cfg.logging.video_type == "single":
-            video_vis = video_pred.cpu()
-        else:
-            video_vis = torch.cat([video_pred, video_gt], dim=-1).cpu()
+        
+        video_vis = torch.cat([video_pred, video_gt], dim=-1).cpu()
         video_vis = video_vis * 0.5 + 0.5
-        video_vis = rearrange(self.all_gather(video_vis), "p b ... -> (p b) ...")
+        if dist.is_initialized() and dist.get_world_size() > 1:
+            video_vis = rearrange(self.all_gather(video_vis), "p b ... -> (p b) ...")
 
-        all_prompts = [None for _ in range(dist.get_world_size())]
-        dist.all_gather_object(all_prompts, batch["prompts"])
-        all_prompts = [item for sublist in all_prompts for item in sublist]
+        if dist.is_initialized():
+            all_prompts = [None for _ in range(dist.get_world_size())]
+            dist.all_gather_object(all_prompts, batch["prompts"])
+            all_prompts = [item for sublist in all_prompts for item in sublist]
+        else:
+            all_prompts = batch["prompts"]
 
         if is_rank_zero:
             if self.cfg.logging.video_type == "single":
                 for i in range(min(len(video_vis), 16)):
                     self.log_video(
-                        f"validation_vis/video_pred_{i}",
+                        f"validation_vis/video_pred_{i}_{batch_idx}",
                         video_vis[i],
                         fps=self.cfg.logging.fps,
                         caption=all_prompts[i],
                     )
             else:
                 self.log_video(
-                    "validation_vis/video_pred",
+                    f"validation_vis/video_pred_{batch_idx}",
                     video_vis[:16],
                     fps=self.cfg.logging.fps,
                     step=self.global_step,

@@ -10,7 +10,7 @@ def main(cfg: DictConfig):
     print(OmegaConf.to_yaml(cfg))
 
     dataset = RobosuiteDataset(cfg.dataset)
-    # dataset.cache_prompt_embed(cfg.algorithm)
+    dataset.cache_prompt_embed(cfg.algorithm)
     print(f"RobosuiteDataset instantiated, length {len(dataset)}.")
     data = dataset[0]
     print(f"Sample data keys: {list(data.keys())}")

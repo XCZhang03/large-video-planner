@@ -5,7 +5,7 @@ params:
   partition: kempner # e.g. kempner_h100
   account: kempner_ydu_lab # e.g. kempner_sham_lab
   env_name: ei_world_model
-  num_gpus: 2
+  num_gpus: 1
   num_cpus: 10
   memory: 120G
   time: "0-01:00:00"

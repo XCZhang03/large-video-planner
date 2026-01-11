@@ -1,0 +1,25 @@
+defaults:
+  - video_base
+  - dexmimicgen@subset/dexmimicgen
+  - mimicgen@subset/mimicgen
+  - robocasa@subset/robocasa
+  - _self_
+
+data_root: null
+metadata_path: null
+load_prompt_embed: true
+load_video_latent: false
+fps: 16
+
+training:
+  weight_type: relative # relative weight consider the original size of the dataset, absolute weight doesn't 
+  weight:
+    dexmimicgen: 1.0
+    mimicgen: 1.0
+    robocasa: 1.0
+validation:
+  weight_type: absolute # relative weight consider the original size of the dataset, absolute weight doesn't 
+  weight:
+    dexmimicgen: 1.0
+    mimicgen: 1.0
+    robocasa: 1.0

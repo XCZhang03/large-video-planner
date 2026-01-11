@@ -6,7 +6,7 @@ force_download: false # whether to force download the dataset even if the data_r
 test_percentage: 0.01 # percentage of the dataset to use for testing vs training. However, if a field `split` is present in the metadata, that will be used instead
 height: 480 # target height for the output videos
 width: 832 # target width for the output videos
-n_frames: 49 # target number of frames for the output videos
+n_frames: 41 # target number of frames for the output videos
 fps: 16 # target fps for the output videos
 id_token: null # if not null, tokenize to an id token for this dataset
 load_video_latent: false # whether to load a raw latent tensor instead of mp4 file. Require a field `image_latent_path` in csv

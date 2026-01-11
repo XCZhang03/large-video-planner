@@ -1,0 +1,6 @@
+defaults:
+  - robosuite
+  - _self_
+
+data_root: /net/holy-isilon/ifs/rc_labs/ydu_lab/xczhang/DiffRL/robocasa_dataset/robocasa/datasets/replay_videos # dataset folder location e.g. ~/data/something_something_v2
+metadata_path: /n/holylabs/ydu_lab/Lab/zhangxiangcheng/code/SAILOR/large-video-planner/data/meta_data/robocasa/robocasa_test.csv # a csv / json file that lists the entries for the dataset, should be a file path relative to data_root.

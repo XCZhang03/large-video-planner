@@ -96,3 +96,35 @@ def numpy_to_mp4_bytes(video_data, fps=30):
     container.close()
     buffer.seek(0)
     return buffer.getvalue()
+
+import torch
+
+def pad_video(video, border=2, color=(1.0, 0.0, 0.0)):
+    """
+    video: (B, T, C, H, W), RGB
+    border: thickness of red edge (pixels)
+    color: tuple, color of the border in RGB format
+    """
+    assert video.shape[2] == 3, "Expected RGB video"
+
+    # Top
+    video[..., :border, :] = torch.tensor(
+        [color[0], color[1], color[2]], device=video.device, dtype=video.dtype
+    ).view(1, 1, 3, 1, 1)
+
+    # Bottom
+    video[..., -border:, :] = torch.tensor(
+        [color[0], color[1], color[2]], device=video.device, dtype=video.dtype
+    ).view(1, 1, 3, 1, 1)
+
+    # Left
+    video[..., :, :border] = torch.tensor(
+        [color[0], color[1], color[2]], device=video.device, dtype=video.dtype
+    ).view(1, 1, 3, 1, 1)
+
+    # Right
+    video[..., :, -border:] = torch.tensor(
+        [color[0], color[1], color[2]], device=video.device, dtype=video.dtype
+    ).view(1, 1, 3, 1, 1)
+
+    return video

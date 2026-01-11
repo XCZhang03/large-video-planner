@@ -35,7 +35,7 @@ max_text_tokens: 512
 logging:
   loss_freq: 1
   video_freq: 1000
-  video_type: grid # grid or single
+  video_type: single # grid or single
   fps: ${dataset.fps}
 
 serving:

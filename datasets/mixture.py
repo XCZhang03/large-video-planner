@@ -12,6 +12,7 @@ from datasets.pandas import PandasVideoDataset
 from datasets.deprecated.video_1x_wm import WorldModel1XDataset
 from datasets.agibot_world import AgibotWorldDataset
 from datasets.ego4d import Ego4DVideoDataset
+from datasets.robosuite import RobosuiteDataset
 
 subset_classes = dict(
     dummy=DummyVideoDataset,
@@ -46,6 +47,10 @@ subset_classes = dict(
     ucsd_kitchen=OpenXVideoDataset,
     utaustin_mutex=OpenXVideoDataset,
     viola=OpenXVideoDataset,
+    robosuite=RobosuiteDataset,
+    robocasa=RobosuiteDataset,
+    mimicgen=RobosuiteDataset,
+    dexmimicgen=RobosuiteDataset,
 )
 
 

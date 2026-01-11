@@ -36,6 +36,7 @@ class VideoPredictionExperiment(BaseLightningExperiment):
     compatible_datasets = dict(
         mixture=MixtureDataset,
         mixture_robot=MixtureDataset,
+        mixture_robosuite=MixtureDataset,
         dummy=DummyVideoDataset,
         something_something=SomethingSomethingDataset,
         epic_kitchen=EpicKitchenDataset,
@@ -47,6 +48,9 @@ class VideoPredictionExperiment(BaseLightningExperiment):
         language_table=OpenXVideoDataset,
         ours_test=SingleFrameVideoDataset,
         robosuite=RobosuiteDataset,
+        robocasa=RobosuiteDataset,
+        mimicgen=RobosuiteDataset,
+        dexmimicgen=RobosuiteDataset,
         # austin_buds=OpenXVideoDataset,
         # austin_sailor=OpenXVideoDataset,
         # austin_sirius=OpenXVideoDataset,

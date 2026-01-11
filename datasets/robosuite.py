@@ -15,17 +15,15 @@ import os
 def filter_path(path: Path) -> bool:
     # Implement your filtering logic here
     dir_allowed_patterns = [
-        "libero_90_std_0.0_192",
-        "libero_90_std_0.1_192",
-        "libero_90_std_0.2_192",
-        "libero_90_std_0.4_192",
+        ""
     ]
     file_allowed_patterns = [
         "merged"
     ]
     if path.is_dir():
-        if any(pattern in str(path) + '/' for pattern in dir_allowed_patterns):
-            return True
+        return True
+        # if any(pattern in str(path) + '/' for pattern in dir_allowed_patterns):
+        #     return True
     elif path.is_file():
         if any(pattern in str(path) for pattern in file_allowed_patterns) and any(pattern in str(path.parent) + '/' for pattern in dir_allowed_patterns):
             return True
@@ -39,7 +37,7 @@ class RobosuiteDataset(CondVideoDataset):
 
     # Override or add any methods specific to RobosuiteDataset if necessary
     def download(self):
-        video_dirs = list(self.data_root.glob("libero*/"))
+        video_dirs = list(self.data_root.glob("args*"))
         if len(video_dirs) == 0:
             raise ValueError(f"No dataset directories found in {self.data_root} for RobosuiteDataset.")
         video_dirs = [ d for d in video_dirs if filter_path(d)]
@@ -108,7 +106,7 @@ class RobosuiteDataset(CondVideoDataset):
                 "height": 128,
                 }
 
-        max_workers = min(8, os.cpu_count() or 4)
+        max_workers = min(16, os.cpu_count() or 4)
         records_parallel = []
         with ThreadPoolExecutor(max_workers=max_workers) as ex:
             futures = {ex.submit(process_pair, pair): pair for pair in self.video_pairs}
@@ -128,59 +126,54 @@ class RobosuiteDataset(CondVideoDataset):
         df.to_csv(metadata_path, index=False)
         print(f"Created metadata CSV with {len(records)} videos at {metadata_path}")
         
-    def cache_prompt_embed(self, cfg):
-        from algorithms.cogvideo.t5 import T5Encoder
-        from algorithms.wan.modules.t5 import umt5_xxl
-        from algorithms.wan.modules.tokenizers import HuggingfaceTokenizer
-
-
-        text_encoder = (
-            umt5_xxl(
-                encoder_only=True,
-                return_tokenizer=False,
-                dtype=torch.bfloat16,
-                device=torch.device("cpu"),
+    def cache_prompt_embed(self, cfg, encode=False):
+        prompt_embed_path = (self.data_root / self.metadata_path).parent.parent / "robosuite_default_prompt.pt"
+        neg_prompt_embed_path = (self.data_root / self.metadata_path).parent.parent / "robosuite_default_neg_prompt.pt"
+        if encode:
+            from algorithms.cogvideo.t5 import T5Encoder
+            from algorithms.wan.modules.t5 import umt5_xxl
+            from algorithms.wan.modules.tokenizers import HuggingfaceTokenizer
+            text_encoder = (
+                umt5_xxl(
+                    encoder_only=True,
+                    return_tokenizer=False,
+                    dtype=torch.bfloat16,
+                    device=torch.device("cpu"),
+                )
+                .eval()
+                .requires_grad_(False)
             )
-            .eval()
-            .requires_grad_(False)
-        )
-        text_encoder.load_state_dict(
-            torch.load(
-                cfg.text_encoder.ckpt_path,
-                map_location="cpu",
-                weights_only=True,
-                # mmap=True,
+            text_encoder.load_state_dict(
+                torch.load(
+                    cfg.text_encoder.ckpt_path,
+                    map_location="cpu",
+                    weights_only=True,
+                    # mmap=True,
+                )
             )
-        )
-        text_encoder = text_encoder.cuda()
-        self.text_encoder = text_encoder
-        # Initialize tokenizer
-        self.tokenizer = HuggingfaceTokenizer(
-            name=cfg.text_encoder.name,
-            seq_len=cfg.text_encoder.text_len,
-            clean="whitespace",
-        )
+            text_encoder = text_encoder.cuda()
+            self.text_encoder = text_encoder
+            # Initialize tokenizer
+            self.tokenizer = HuggingfaceTokenizer(
+                name=cfg.text_encoder.name,
+                seq_len=cfg.text_encoder.text_len,
+                clean="whitespace",
+            )
+            prompt_embed = self.encode_text([self.id_token])[0]
+            prompt_embed_path.parent.mkdir(parents=True, exist_ok=True)
+            print(f"Saving prompt embed shape {prompt_embed.shape} to {prompt_embed_path}")
+            torch.save(prompt_embed.clone(), prompt_embed_path)
+
+            neg_prompt = cfg.neg_prompt if hasattr(cfg, 'neg_prompt') else ""
+            neg_prompt_embed = self.encode_text([neg_prompt])[0]
+            neg_prompt_embed_path.parent.mkdir(parents=True, exist_ok=True)
+            print(f"Saving neg prompt embed shape {neg_prompt_embed.shape} to {neg_prompt_embed_path}")
+            torch.save(neg_prompt_embed.clone(), neg_prompt_embed_path)
 
         records = self.records
 
         metadata_path = self.data_root / self.metadata_path
-        metadata_path.parent.mkdir(parents=True, exist_ok=True)
-        print("Saving prompt embeddings and new metadata to ", self.data_root)
-
         new_records = []
-
-        prompt_embed = self.encode_text([self.id_token])[0]
-        prompt_embed_path = self.data_root / str(self.metadata_path).replace('.csv', '_prompt_embed.pt')
-        prompt_embed_path.parent.mkdir(parents=True, exist_ok=True)
-        print(f"Saving prompt embed shape {prompt_embed.shape} to {prompt_embed_path}")
-        torch.save(prompt_embed.clone(), prompt_embed_path)
-
-        neg_prompt = cfg.neg_prompt if hasattr(cfg, 'neg_prompt') else ""
-        neg_prompt_embed = self.encode_text([neg_prompt])[0]
-        neg_prompt_embed_path = self.data_root / str(self.metadata_path).replace('.csv', '_neg_prompt_embed.pt')
-        neg_prompt_embed_path.parent.mkdir(parents=True, exist_ok=True)
-        print(f"Saving neg prompt embed shape {neg_prompt_embed.shape} to {neg_prompt_embed_path}")
-        torch.save(neg_prompt_embed.clone(), neg_prompt_embed_path)
 
         for i in trange(0, len(records)):
             record = records[i]
@@ -191,7 +184,7 @@ class RobosuiteDataset(CondVideoDataset):
 
         df = pd.DataFrame(new_records)
         df.to_csv(metadata_path, index=False)
-        print(f"Updated metadata CSV with {len(new_records)} videos")
+        print(f"Updated metadata CSV with {len(new_records)} videos to {metadata_path}")
 
     def encode_text(self, texts):
         ids, mask = self.tokenizer(texts, return_mask=True, add_special_tokens=True)

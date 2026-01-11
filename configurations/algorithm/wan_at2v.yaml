@@ -4,6 +4,10 @@ defaults:
 
 diffusion_forcing:
   cond_mode: seq
+  mode: rand_history
 
-model:
-  hist_len: 5
+hist_len: 17
+# hist_steps: [0, 4, 8, 12, 16, 17, 18, 19, 20]
+# n_frames: 37
+# max_frames: ${dataset.n_frames}
+lang_guidance: 0.0

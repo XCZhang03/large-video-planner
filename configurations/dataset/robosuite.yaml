@@ -19,10 +19,10 @@ filtering:
 download:
   override_fps: 20
 
-n_frames: 49
+n_frames: 41
 fps: 16
 
-auto_download: true
+auto_download: false
 
 augmentation:
   random_flip: null  # probability of random flip, null means no random flip
