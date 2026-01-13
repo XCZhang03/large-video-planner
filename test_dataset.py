@@ -22,21 +22,33 @@ def main(cfg: DictConfig):
     )
     batch = next(iter(dl))
 
-    # algorithm = WanActionToVideo(cfg.algorithm).to("cuda")
-    # print(f"Algorithm instantiated.")
+    algorithm = WanActionTextToVideo(cfg.algorithm).to("cuda")
+    algorithm.configure_model()
+    algorithm.to(device="cuda")
+    algorithm.vae.to(device="cuda")
+    algorithm.model.to(device="cuda")
+    algorithm.action_encoder.to(device="cuda")
+    algorithm.vae_scale[0] = algorithm.vae_scale[0].to(device="cuda")
+    algorithm.vae_scale[1] = algorithm.vae_scale[1].to(device="cuda")
+    print(f"Algorithm instantiated.")
 
-    # dl = torch.utils.data.DataLoader(
-    #     dataset,
-    #     batch_size=2,
-    #     shuffle=True,
-    #     num_workers=1,
-    # )
-    # batch = next(iter(dl))
-    # for k, v in batch.items():
-    #     if isinstance(v, torch.Tensor):
-    #         batch[k] = v.to(device="cuda", dtype=algorithm.dtype)
-    # batch = algorithm.on_after_batch_transfer(batch, 0)  
-    # loss_dict = algorithm.training_step(batch, 0)
+    dl = torch.utils.data.DataLoader(
+        dataset,
+        batch_size=2,
+        shuffle=True,
+        num_workers=1,
+    )
+    batch = next(iter(dl))
+    for k, v in batch.items():
+        if isinstance(v, torch.Tensor):
+            batch[k] = v.to(device="cuda")
+    loss = algorithm.training_step(batch, 0)
+    loss.backward()
+    for name, p in algorithm.named_parameters():
+        if p.grad is None and p.requires_grad:
+            breakpoint()
+            print(f"Param {name} has no grad!")
+
 
 if __name__ == "__main__":
     main()

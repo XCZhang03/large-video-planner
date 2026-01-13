@@ -85,15 +85,17 @@ class CondVideoDataset(VideoDataset):
         video_path = self.data_root / record["video_path"]
         cond_path = self.data_root / record['cond_path']
         video_reader = decord.VideoReader(uri=video_path.as_posix())
-        cond_reader = decord.VideoReader(uri=cond_path.as_posix())
+        cond = np.load(cond_path)['actions']
+        cond = torch.tensor(cond).float()
         n_frames = len(video_reader)
-        assert n_frames == len(cond_reader), "Video and cond length mismatch"
+        assert n_frames == cond.shape[0], "Video and cond length mismatch"
         start = record.get("trim_start", 0)
         end = record.get("trim_end", n_frames)
         indices = self._temporal_sample(end - start, record["fps"])
         indices = list(start + indices)
         frames = video_reader.get_batch(indices)
-        cond_frames = cond_reader.get_batch(indices)
+        cond = cond[indices]
+        
 
         # do some padding
         if len(frames) != self.n_frames:
@@ -104,23 +106,17 @@ class CondVideoDataset(VideoDataset):
         # crop if specified in the record
         if "crop_top" in record and "crop_bottom" in record:
             frames = frames[:, record["crop_top"] : record["crop_bottom"]]
-            cond_frames = cond_frames[:, record["crop_top"] : record["crop_bottom"]]
         if "crop_left" in record and "crop_right" in record:
             frames = frames[:, :, record["crop_left"] : record["crop_right"]]
-            cond_frames = cond_frames[:, :, record["crop_left"] : record["crop_right"]]
 
         frames = frames.float().permute(0, 3, 1, 2).contiguous() / 255.0
-        cond_frames = cond_frames.float().permute(0, 3, 1, 2).contiguous() / 255.0
         if "has_bbox" in record and record["has_bbox"]:
             frames = self.no_augment_transforms(frames)
-            cond_frames = self.no_augment_transforms(cond_frames)
         else:
             frames = self.augment_transforms(frames)
-            cond_frames = self.augment_transforms(cond_frames)
         frames = self.img_normalize(frames)
-        cond_frames = self.img_normalize(cond_frames)
 
-        return frames, cond_frames
+        return frames, cond
 
 
 

@@ -577,10 +577,6 @@ class WanModel(ModelMixin, ConfigMixin):
             List[Tensor]:
                 List of denoised video tensors with original input shapes [C_out, F, H / 8, W / 8]
         """
-        concat_cond = False
-        if cond is not None:
-            concat_cond = True
-        
         n_frames = x.shape[2]
         if self.model_type == "i2v":
             assert clip_fea is not None and y is not None
@@ -591,9 +587,6 @@ class WanModel(ModelMixin, ConfigMixin):
 
         if y is not None:
             x = [torch.cat([u, v], dim=0) for u, v in zip(x, y)]
-            if concat_cond:
-                cond = [torch.cat([u, v], dim=0) for u, v in zip(cond, y)]
-
         # embeddings
         x = [self.patch_embedding(u.unsqueeze(0)) for u in x]
         grid_sizes = torch.stack(
@@ -604,23 +597,12 @@ class WanModel(ModelMixin, ConfigMixin):
         # assert seq_lens.max() <= seq_len
         assert all(u.size(1) == seq_len for u in x)
 
-        if concat_cond:
-            x_cond = [self.patch_embedding(u.unsqueeze(0)) for u in cond]
-            x_cond = [u.flatten(2).transpose(1, 2) for u in x_cond]
-            seq_lens = seq_lens * 2
-            x = torch.cat(
-                [
-                    torch.cat([u, v, u.new_zeros(1, seq_len * 2  - u.size(1) - v.size(1), u.size(2))], dim=1) 
-                    for u, v in zip(x, x_cond)
-                ]
-            )
-        else:
-            x = torch.cat(
-                [
-                    torch.cat([u, u.new_zeros(1, seq_len - u.size(1), u.size(2))], dim=1)
-                    for u in x
-                ]
-            )
+        x = torch.cat(
+            [
+                torch.cat([u, u.new_zeros(1, seq_len - u.size(1), u.size(2))], dim=1)
+                for u in x
+            ]
+        )
 
         # time embeddings
         # with amp.autocast("cuda", dtype=torch.float32):
@@ -632,12 +614,11 @@ class WanModel(ModelMixin, ConfigMixin):
             e = e.unflatten(dim=0, sizes=t_shape)
         else:
             e = repeat(e, "b c -> b f c", f=n_frames)
-        if concat_cond:
-            e = torch.cat([e, e], dim=1)
-            self.freqs_wrapper.shift = False
         e0 = self.time_projection(e).unflatten(-1, (6, self.dim))
         # assert e.dtype == torch.float32 and e0.dtype == torch.float32
-
+        if cond is not None:
+            e = e + cond[0]
+            e0 = e0 + cond[1]
         # context
         context_lens = None
         context = self.text_embedding(
@@ -672,9 +653,6 @@ class WanModel(ModelMixin, ConfigMixin):
 
         # head
         x = self.head(x, e)
-
-        if concat_cond:
-            x = x.chunk(2, dim=1)[0]
 
         # unpatchify
         x = self.unpatchify(x, grid_sizes)

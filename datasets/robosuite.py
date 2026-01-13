@@ -3,7 +3,7 @@ from tqdm import tqdm
 from pathlib import Path
 from tqdm import trange
 import torch
-
+import numpy as np
 import decord
 
 from .cond_video import CondVideoDataset
@@ -15,15 +15,15 @@ import os
 def filter_path(path: Path) -> bool:
     # Implement your filtering logic here
     dir_allowed_patterns = [
-        ""
+        "icml"
     ]
     file_allowed_patterns = [
-        "merged"
+        ""
     ]
     if path.is_dir():
-        return True
-        # if any(pattern in str(path) + '/' for pattern in dir_allowed_patterns):
-        #     return True
+        # return True
+        if any(pattern in str(path) + '/' for pattern in dir_allowed_patterns):
+            return True
     elif path.is_file():
         if any(pattern in str(path) for pattern in file_allowed_patterns) and any(pattern in str(path.parent) + '/' for pattern in dir_allowed_patterns):
             return True
@@ -37,7 +37,7 @@ class RobosuiteDataset(CondVideoDataset):
 
     # Override or add any methods specific to RobosuiteDataset if necessary
     def download(self):
-        video_dirs = list(self.data_root.glob("args*"))
+        video_dirs = list(self.data_root.glob("*icml*/"))
         if len(video_dirs) == 0:
             raise ValueError(f"No dataset directories found in {self.data_root} for RobosuiteDataset.")
         video_dirs = [ d for d in video_dirs if filter_path(d)]
@@ -51,27 +51,22 @@ class RobosuiteDataset(CondVideoDataset):
         mp4_set = set(mp4_files)
 
         for p in mp4_files:
-            if p.stem.endswith("_pose"):
-                continue
-            pose_p = p.with_name(f"{p.stem}_pose{p.suffix}")
-            if pose_p not in mp4_set:
-                RuntimeWarning(f"Pose video not found for {p}, expected at {pose_p}")
-                continue
+            action_p = p.parent / "actions.npz"
                 
-            if filter_path(p) and filter_path(pose_p):
-                pairs.append((p, pose_p))
+            if filter_path(p) and filter_path(action_p):
+                pairs.append((p, action_p))
 
         self.video_pairs = pairs
 
         records = []
         def process_pair(pair):
-            video_path, pose_path = pair
+            video_path, action_path = pair
 
             if not video_path.exists():
                 print(f"Video file not found: {video_path}")
                 return None
-            if not pose_path.exists():
-                print(f"Pose file not found: {pose_path}")
+            if not action_path.exists():
+                print(f"Action file not found: {action_path}")
                 return None
 
             try:
@@ -83,23 +78,22 @@ class RobosuiteDataset(CondVideoDataset):
                 return None
 
             try:
-                pr = decord.VideoReader(str(pose_path))
-                n_pose_frames = len(pr)
-                del pr
+                action = np.load(action_path)
+                n_action_frames = action['actions'].shape[0]
             except Exception as e:
-                print(f"Error loading pose video {pose_path}: {e}")
+                print(f"Error loading action file {action_path}: {e}")
                 return None
 
-            if n_frames != n_pose_frames:
+            if n_frames != n_action_frames:
                 print(
                     f"Frame count mismatch: {video_path} has {n_frames} frames, "
-                    f"but {pose_path} has {n_pose_frames} frames."
+                    f"but {action_path} has {n_action_frames} frames."
                 )
                 return None
 
             return {
                 "video_path": str(video_path.relative_to(self.data_root)),
-                "cond_path": str(pose_path.relative_to(self.data_root)),
+                "cond_path": str(action_path.relative_to(self.data_root)),
                 "fps": self.override_fps,
                 "n_frames": n_frames,
                 "width": 128,

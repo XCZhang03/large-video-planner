@@ -7,7 +7,7 @@ params:
   env_name: ei_world_model
   num_gpus: 4
   num_cpus: 48
-  memory: 256G
+  memory: 128G
   time: "0-12:00:00" 
 
 launch_template: |

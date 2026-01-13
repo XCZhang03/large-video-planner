@@ -276,7 +276,7 @@ class BaseLightningExperiment(BasePytorchExperiment):
             accumulate_grad_batches=self.cfg.training.optim.accumulate_grad_batches,
             precision=self.cfg.training.precision,
             detect_anomaly=False,  # self.cfg.debug,
-            num_sanity_val_steps=1,
+            num_sanity_val_steps=2,
             max_epochs=self.cfg.training.max_epochs,
             max_steps=self.cfg.training.max_steps,
             max_time=self.cfg.training.max_time,

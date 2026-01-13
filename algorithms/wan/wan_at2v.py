@@ -5,9 +5,9 @@ from einops import rearrange, repeat
 from transformers import get_scheduler
 from .modules.clip import clip_xlm_roberta_vit_h_14
 from .wan_t2v import WanTextToVideo
-from utils.video_utils import pad_video
 
 import time
+from .modules.action_encoder import ActionEncoder
 
 
 
@@ -16,6 +16,7 @@ class WanActionTextToVideo(WanTextToVideo):
         super().__init__(cfg)
         self.max_frames = cfg.get("max_frames", self.n_frames) # total frames input, including long continuous history 
         self.hist_steps = cfg.get("hist_steps", list(range(self.cfg.hist_len))) # history steps to condition on
+        self.pred_len = self.max_frames - max(self.hist_steps) - 1  # number of frames to predict
         assert (self.hist_len - 1) % self.vae_stride[0] == 0, \
             "hist_len - 1 must be a multiple of vae_stride[0] due to temporal vae. " \
                 f"Got {self.hist_len} and vae stride {self.vae_stride[0]}"
@@ -23,6 +24,21 @@ class WanActionTextToVideo(WanTextToVideo):
         assert len(self.hist_steps) == self.hist_len
         assert self.diffusion_forcing.enabled and self.diffusion_forcing.cond_mode == "seq", \
             "WanActionTextToVideo only supports cond_mode 'seq' when diffusion_forcing is enabled."
+
+    def configure_model(self):
+        super().configure_model()
+        action_dim = self.cfg.get("action_dim", 7)
+        action_hidden_dim = self.model.dim
+        self.action_encoder = ActionEncoder(
+            action_dim=action_dim,
+            hidden_dim=action_hidden_dim
+        )
+        if self.cfg.model.tuned_ckpt_path is not None:
+            self.action_encoder.load_state_dict(
+                self._load_tuned_state_dict(prefix="action_encoder.")
+            )
+        if not self.is_inference:
+            self.action_encoder.to(self.dtype).train()
 
     @torch.no_grad()
     def prepare_video_embeds(self, batch, **kwargs):
@@ -38,9 +54,7 @@ class WanActionTextToVideo(WanTextToVideo):
             )
 
         # get sparse history frames
-        max_hist_step = max(self.hist_steps)
-        gen_steps = list(set(range(self.max_frames)) - set(range(max_hist_step + 1)))
-        indices = list(self.hist_steps) + gen_steps
+        indices = list(self.hist_steps) + list(range(self.max_frames - self.pred_len, self.max_frames))
         assert len(indices) == self.n_frames, \
             f"Total selected frames {len(indices)} not equal to model n_frames {self.n_frames}"
         videos = videos[:, indices]
@@ -50,7 +64,9 @@ class WanActionTextToVideo(WanTextToVideo):
         # video_lat ~ (b, lat_c, lat_t, lat_h, lat_w)
         batch["video_lat"] = video_lat
 
-        cond_lat = self.encode_video(rearrange(conds, "b t c h w -> b c t h w"))        
+        # enable gradients for the action encoder
+        with torch.enable_grad():
+            cond_lat = self.action_encoder(conds)
         batch["cond_lat"] = cond_lat
 
         return batch
@@ -217,7 +233,7 @@ class WanActionTextToVideo(WanTextToVideo):
             clip_fea=clip_embeds,
             seq_len=self.max_tokens,
             y=image_embeds,
-            cond=cond_lat if self.diffusion_forcing.cond_mode == "seq" else None,
+            cond=cond_lat
         )
         loss = torch.nn.functional.mse_loss(flow_pred, flow)
         if self.global_step % 100 == 0:
@@ -271,7 +287,7 @@ class WanActionTextToVideo(WanTextToVideo):
                 seq_len=self.max_tokens,
                 clip_fea=clip_embeds,
                 y=image_embeds,
-                cond=cond_lat if self.diffusion_forcing.cond_mode == "seq" else None,
+                cond=cond_lat,
             )
 
             # language unconditional sampling
@@ -283,7 +299,7 @@ class WanActionTextToVideo(WanTextToVideo):
                     seq_len=self.max_tokens,
                     clip_fea=clip_embeds,
                     y=image_embeds,
-                    cond=cond_lat if self.diffusion_forcing.cond_mode == "seq" else None,
+                    cond=cond_lat,
                 )
             else:
                 no_lang_flow_pred = torch.zeros_like(flow_pred)
@@ -302,7 +318,7 @@ class WanActionTextToVideo(WanTextToVideo):
                     seq_len=self.max_tokens,
                     clip_fea=clip_embeds,
                     y=image_embeds,
-                    cond=cond_lat if self.diffusion_forcing.cond_mode == "seq" else None,
+                    cond=cond_lat,
                 )
             else:
                 no_hist_flow_pred = torch.zeros_like(flow_pred)
@@ -320,8 +336,8 @@ class WanActionTextToVideo(WanTextToVideo):
         video_pred_lat[:, :, :hist_tokens] = video_lat[:, :, :hist_tokens]
 
         video_pred = rearrange(self.decode_video(video_pred_lat), "b c t h w -> b t c h w")
-        video_gt = pad_video(batch['videos'])
-        video_pred = torch.concat([video_gt[:, :max(self.hist_steps)+1], video_pred[:, self.hist_len:]], dim=1)
+        video_gt = batch['videos']
+        video_pred = torch.concat([video_gt[:, :-self.pred_len], video_pred[:, -self.pred_len:]], dim=1)
         
         return video_pred
     
