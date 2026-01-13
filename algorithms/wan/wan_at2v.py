@@ -16,6 +16,7 @@ class WanActionTextToVideo(WanTextToVideo):
         super().__init__(cfg)
         self.max_frames = cfg.get("max_frames", self.n_frames) # total frames input, including long continuous history 
         self.hist_steps = cfg.get("hist_steps", list(range(self.cfg.hist_len))) # history steps to condition on
+        self.pred_len = self.max_frames - max(self.hist_steps) - 1
         assert (self.hist_len - 1) % self.vae_stride[0] == 0, \
             "hist_len - 1 must be a multiple of vae_stride[0] due to temporal vae. " \
                 f"Got {self.hist_len} and vae stride {self.vae_stride[0]}"
@@ -38,9 +39,7 @@ class WanActionTextToVideo(WanTextToVideo):
             )
 
         # get sparse history frames
-        max_hist_step = max(self.hist_steps)
-        gen_steps = list(set(range(self.max_frames)) - set(range(max_hist_step + 1)))
-        indices = list(self.hist_steps) + gen_steps
+        indices = list(self.hist_steps) + list(range(self.max_frames - self.pred_len, self.max_frames))
         assert len(indices) == self.n_frames, \
             f"Total selected frames {len(indices)} not equal to model n_frames {self.n_frames}"
         videos = videos[:, indices]
@@ -320,8 +319,7 @@ class WanActionTextToVideo(WanTextToVideo):
         video_pred_lat[:, :, :hist_tokens] = video_lat[:, :, :hist_tokens]
 
         video_pred = rearrange(self.decode_video(video_pred_lat), "b c t h w -> b t c h w")
-        video_gt = pad_video(batch['videos'])
-        video_pred = torch.concat([video_gt[:, :max(self.hist_steps)+1], video_pred[:, self.hist_len:]], dim=1)
+        video_pred = torch.concat([batch['videos'][:, :-self.pred_len], video_pred[:, -self.pred_len:]], dim=1)
         
         return video_pred
     

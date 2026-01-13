@@ -6,6 +6,7 @@ import torch.distributed as dist
 from einops import rearrange, repeat
 from tqdm import tqdm
 from algorithms.common.base_pytorch_algo import BasePytorchAlgo
+from algorithms.common.metrics.video import VideoMetric, SharedVideoMetricModelRegistry
 from transformers import get_scheduler
 import zmq
 import msgpack
@@ -18,6 +19,7 @@ from .modules.model import WanModel, WanAttentionBlock
 from .modules.t5 import umt5_xxl, T5CrossAttention, T5SelfAttention
 from .modules.tokenizers import HuggingfaceTokenizer
 from .modules.vae import video_vae_factory
+from utils.video_utils import pad_video
 from .utils.fm_solvers import (
     FlowDPMSolverMultistepScheduler,
     get_sampling_sigmas,
@@ -57,6 +59,7 @@ class WanTextToVideo(BasePytorchAlgo):
         self.diffusion_type = cfg.diffusion_type  # "discrete"  # or "continuous"
 
         self.hist_len = cfg.get("hist_len", 1)
+        self.pred_len = self.n_frames - self.hist_len
 
         self.lat_h = self.height // self.vae_stride[1]
         self.lat_w = self.width // self.vae_stride[2]
@@ -184,6 +187,15 @@ class WanTextToVideo(BasePytorchAlgo):
 
         self.training_scheduler, self.training_timesteps = self.build_scheduler(True)
 
+        # 3. Metrics
+        registry = SharedVideoMetricModelRegistry()
+        metric_types = self.cfg.logging.metrics
+        self.metric = VideoMetric(
+            registry,
+            metric_types,
+            split_batch_size=self.cfg.logging.metrics_batch_size,
+        ).eval()
+
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(
             [
@@ -284,7 +296,7 @@ class WanTextToVideo(BasePytorchAlgo):
         return new_batch
 
     @torch.no_grad()
-    def prepare_language_embed(self, batch, encode_negative_prompt=False, **kwargs):
+    def prepare_language_embeds(self, batch, encode_negative_prompt=False, **kwargs):
         prompts = batch["prompts"]
 
         if not self.cfg.load_prompt_embed:
@@ -331,7 +343,7 @@ class WanTextToVideo(BasePytorchAlgo):
     @torch.no_grad()
     def prepare_embeds(self, batch, **kwargs):
         batch = self.prepare_video_embeds(batch, **kwargs)
-        batch = self.prepare_language_embed(batch, **kwargs)
+        batch = self.prepare_language_embeds(batch, **kwargs)
         batch["image_embeds"] = None
         batch["clip_embeds"] = None
 
@@ -589,12 +601,38 @@ class WanTextToVideo(BasePytorchAlgo):
 
     def validation_step(self, batch, batch_idx=None):
         video_pred = self.sample_seq(batch)
+        self._update_metrics(video_pred, batch["videos"])
         self.visualize(video_pred, batch, batch_idx)
 
-    def visualize(self, video_pred, batch, batch_idx=None):
-        video_gt = batch["videos"]
+    def on_validation_epoch_end(self):
+        metric_dict = self.metric.log("prediction")
+        if not self.trainer.sanity_checking:
+            self.log_dict(
+                metric_dict,
+                on_step=False,
+                on_epoch=True,
+                prog_bar=True,
+                sync_dist=True,
+            )
 
-        
+    def _update_metrics(self, pred_videos, gt_videos) -> None:
+        """Update all metrics during validation/test step."""
+        if (
+            self.cfg.logging.n_metrics_frames is not None
+        ):  # only consider the first n_metrics_frames for evaluation
+            pred_videos = pred_videos[:, : self.cfg.logging.n_metrics_frames]
+            gt_videos = gt_videos[:, : self.cfg.logging.n_metrics_frames]
+
+        metric = self.metric
+        context_mask = torch.zeros(self.n_frames).bool().to(self.device)
+        context_mask[:-self.pred_len] = True
+        if self.cfg.logging.n_metrics_frames is not None:
+            context_mask = context_mask[: self.cfg.logging.n_metrics_frames]
+        metric(pred_videos, gt_videos, context_mask=context_mask)
+
+    def visualize(self, video_pred, batch, batch_idx=None):
+        video_gt = pad_video(batch["videos"])
+        video_pred = pad_video(video_pred, pad_len=-self.pred_len)
         video_vis = torch.cat([video_pred, video_gt], dim=-1).cpu()
         video_vis = video_vis * 0.5 + 0.5
         if dist.is_initialized() and dist.get_world_size() > 1:
