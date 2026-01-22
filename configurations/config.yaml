@@ -3,7 +3,7 @@ defaults:
   - experiment: exp_video # experiment yaml file name in configurations/experiments folder [fixme]
   - dataset: libero # dataset yaml file name in configurations/dataset folder [fixme]
   - algorithm: wan_at2v # algorithm yaml file name in configurations/algorithm folder [fixme]
-  - cluster: fas_h100 # optional, cluster yaml file name in configurations/cluster folder. Leave null for local compute
+  - cluster: null # optional, cluster yaml file name in configurations/cluster folder. Leave null for local compute
   - _self_
 
 debug: false # global debug flag will be passed into configuration of experiment, dataset and algorithm
@@ -14,6 +14,6 @@ wandb:
   mode: online # set wandb logging to online, offline or dryrun
 
 resume: null # wandb run id to resume logging and loading checkpoint from
-load: null # wandb run id containing checkpoint or a path to a checkpoint file 
+load: scp9hpsv:model # wandb run id containing checkpoint or a path to a checkpoint file 
 
-name: test_libero_icml # experiment name, used for logging and checkpoint saving [fixme]
+name: libero_task4_oracle_100_balanced # experiment name, used for logging and checkpoint saving [fixme]

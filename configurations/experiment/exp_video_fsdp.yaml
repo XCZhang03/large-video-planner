@@ -3,11 +3,12 @@ defaults:
   - _self_
   
 tasks: [training]
+strategy: fsdp # distributed strategy to use, options: ddp, deepspeed_stage_2, fsdp
 
 training:
   lr: 1e-5
   precision: bf16-mixed
-  batch_size: 32
+  batch_size: 1
   max_epochs: 1000
   max_steps: 10000000
   checkpointing:
@@ -16,8 +17,6 @@ training:
     save_weights_only: false
     save_on_exception: false
     save_last: link
-    # monitor: mse
-    # mode: min
   optim:
     accumulate_grad_batches: 2
     gradient_clip_val: null
@@ -29,9 +28,9 @@ validation:
   val_every_n_step: 50
   val_every_n_epoch: null
   batch_size: 1
-  limit_batch: null
+  limit_batch: 4
   data:
-    num_workers: 2 # number of CPU threads for data preprocessing, for validation.
+    num_workers: 3 # number of CPU threads for data preprocessing, for validation.
 
 test:
   precision: bf16-mixed
@@ -39,5 +38,3 @@ test:
   batch_size: 1
   data:
     num_workers: 1 # number of CPU threads for data preprocessing, for test.
-
-find_unused_parameters: False

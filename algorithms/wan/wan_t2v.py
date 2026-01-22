@@ -27,6 +27,8 @@ from .utils.fm_solvers import (
 )
 from .utils.fm_solvers_unipc import FlowUniPCMultistepScheduler
 from utils.distributed_utils import is_rank_zero
+import csv
+import os
 
 
 def print_module_hierarchy(model, indent=0):
@@ -187,14 +189,16 @@ class WanTextToVideo(BasePytorchAlgo):
 
         self.training_scheduler, self.training_timesteps = self.build_scheduler(True)
 
-        # 3. Metrics
+        self.build_metrics()
+    
+    def build_metrics(self):
         registry = SharedVideoMetricModelRegistry()
         metric_types = self.cfg.logging.metrics
         self.metric = VideoMetric(
             registry,
             metric_types,
             split_batch_size=self.cfg.logging.metrics_batch_size,
-        ).eval()
+        ).eval().requires_grad_(False)
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(
@@ -600,11 +604,28 @@ class WanTextToVideo(BasePytorchAlgo):
         return video_pred
 
     def validation_step(self, batch, batch_idx=None):
-        video_pred = self.sample_seq(batch)
-        self._update_metrics(video_pred, batch["videos"])
-        self.visualize(video_pred, batch, batch_idx)
+        video_preds = self.sample_seq(batch)
+        video_preds = video_preds.clamp(-1, 1) * 0.5 + 0.5
+        gt_videos = batch["videos"] * 0.5 + 0.5
+        # for i, (video_pred_sample, video_gt_sample) in enumerate(zip(video_preds, gt_videos)):
+        #     mse_error = torch.nn.functional.mse_loss(
+        #         video_pred_sample, video_gt_sample, reduction="mean"
+        #     )
+        #     video_path = batch["video_path"][i]
+        #     csv_path = "test_mse.csv"
+        #     file_exists = os.path.exists(csv_path)
+        #     with open(csv_path, mode="a", newline="") as f:
+        #         writer = csv.writer(f)
+        #         if not file_exists:
+        #             writer.writerow(["video_path", "mse_error"])
+        #         writer.writerow([video_path, float(mse_error)])
+        self._update_metrics(video_preds, gt_videos)
+        if batch_idx < 16:
+            self.visualize(video_preds, gt_videos, batch, batch_idx)
 
     def on_validation_epoch_end(self):
+        if self.metric is None:
+            return
         metric_dict = self.metric.log("prediction")
         if not self.trainer.sanity_checking:
             self.log_dict(
@@ -614,9 +635,12 @@ class WanTextToVideo(BasePytorchAlgo):
                 prog_bar=True,
                 sync_dist=True,
             )
+            self.log("mse", metric_dict["prediction/mse"])
 
     def _update_metrics(self, pred_videos, gt_videos) -> None:
         """Update all metrics during validation/test step."""
+        if self.metric is None:
+            return
         if (
             self.cfg.logging.n_metrics_frames is not None
         ):  # only consider the first n_metrics_frames for evaluation
@@ -630,11 +654,10 @@ class WanTextToVideo(BasePytorchAlgo):
             context_mask = context_mask[: self.cfg.logging.n_metrics_frames]
         metric(pred_videos, gt_videos, context_mask=context_mask)
 
-    def visualize(self, video_pred, batch, batch_idx=None):
-        video_gt = pad_video(batch["videos"])
-        video_pred = pad_video(video_pred, pad_len=-self.pred_len)
+    def visualize(self, video_preds, gt_videos, batch, batch_idx=None):
+        video_gt = pad_video(gt_videos)
+        video_pred = pad_video(video_preds, pad_len=-self.pred_len)
         video_vis = torch.cat([video_pred, video_gt], dim=-1).cpu()
-        video_vis = video_vis * 0.5 + 0.5
         if dist.is_initialized() and dist.get_world_size() > 1:
             video_vis = rearrange(self.all_gather(video_vis), "p b ... -> (p b) ...")
 

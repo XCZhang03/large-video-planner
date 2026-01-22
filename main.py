@@ -9,6 +9,7 @@ Borrowed the wandb code from David Charatan and wandb.ai.
 """
 
 import os
+os.environ['HYDRA_FULL_ERROR'] = '1'
 import sys
 import subprocess
 import time
@@ -33,6 +34,9 @@ from utils.distributed_utils import rank_zero_print, is_rank_zero
 import logging
 
 logging.getLogger("lightning").setLevel(logging.DEBUG)
+
+import wandb
+wandb.login(key="78319f33ffd79b3480286266fd8ba1f9c5bc3dab")
 
 def run_local(cfg: DictConfig):
     # delay some imports in case they are not needed in non-local envs for submission

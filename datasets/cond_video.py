@@ -52,6 +52,7 @@ class CondVideoDataset(VideoDataset):
         has_bbox, bbox_render = self._render_bbox(record)
 
         output = {
+            "video_path": str(self.data_root / record["video_path"]),
             "videos": videos,
             "conds": conds,
             "video_metadata": video_metadata,

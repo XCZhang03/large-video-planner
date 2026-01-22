@@ -27,21 +27,6 @@ def sinusoidal_embedding_1d(dim, position):
     x = torch.cat([torch.cos(sinusoid), torch.sin(sinusoid)], dim=1)
     return x
 
-class RopeFreqsWrapper:
-    def __init__(self, freqs, shift=None):
-        self.freqs = freqs
-        self.shift = shift
-
-    def apply(self, x, grid_sizes):
-        if self.shift is not None:
-            # apply pos embedding separately for video and cond
-            assert self.shift == False, "only support shift=False for now"
-            x1, x2 = x.chunk(2, dim=1)
-            x1_applied, x2_applied = rope_apply(x1, grid_sizes, self.freqs), rope_apply(x2, grid_sizes, self.freqs, shift=self.shift)
-            x = torch.cat([x1_applied, x2_applied], dim=1)
-            return x
-        else:
-            return rope_apply(x, grid_sizes, self.freqs)
 
 # @amp.autocast("cuda", enabled=False)
 def rope_params(max_seq_len, dim, theta=10000):
@@ -55,8 +40,9 @@ def rope_params(max_seq_len, dim, theta=10000):
 
 
 # @amp.autocast("cuda", enabled=False)
-def rope_apply(x, grid_sizes, freqs, shift=False):
+def rope_apply(x, grid_sizes, freqs):
     n, c = x.size(2), x.size(3) // 2
+    freqs = freqs.to(x.device)
 
     # split freqs
     freqs = freqs.split([c - 2 * (c // 3), c // 3, c // 3], dim=1)
@@ -65,7 +51,6 @@ def rope_apply(x, grid_sizes, freqs, shift=False):
     output = []
     for i, (f, h, w) in enumerate(grid_sizes.tolist()):
         seq_len = f * h * w
-        assert seq_len == x.size(1)
 
         # precompute multipliers
         x_i = torch.view_as_complex(
@@ -73,7 +58,7 @@ def rope_apply(x, grid_sizes, freqs, shift=False):
         )
         freqs_i = torch.cat(
             [
-                (freqs[0][:f] if not shift else freqs[0][512:512+f]).view(f, 1, 1, -1).expand(f, h, w, -1),
+                freqs[0][:f].view(f, 1, 1, -1).expand(f, h, w, -1),
                 freqs[1][:h].view(1, h, 1, -1).expand(f, h, w, -1),
                 freqs[2][:w].view(1, 1, w, -1).expand(f, h, w, -1),
             ],
@@ -159,13 +144,10 @@ class WanSelfAttention(nn.Module):
             return q, k, v
 
         q, k, v = qkv_fn(x)
-        assert k.size(1) == seq_lens.max() == seq_lens.min()
 
         x = flash_attention(
-            # q=rope_apply(q, grid_sizes, freqs),
-            # k=rope_apply(k, grid_sizes, freqs),
-            q = freqs.apply(q, grid_sizes),
-            k = freqs.apply(k, grid_sizes),
+            q=rope_apply(q, grid_sizes, freqs),
+            k=rope_apply(k, grid_sizes, freqs),
             v=v,
             k_lens=seq_lens,
             window_size=self.window_size,
@@ -521,7 +503,6 @@ class WanModel(ModelMixin, ConfigMixin):
             ],
             dim=1,
         )
-        self.freqs_wrapper = RopeFreqsWrapper(self.freqs, shift=None)
 
         if model_type == "i2v":
             self.img_emb = MLPProj(1280, dim)
@@ -582,8 +563,6 @@ class WanModel(ModelMixin, ConfigMixin):
             assert clip_fea is not None and y is not None
         # params
         device = self.patch_embedding.weight.device
-        if self.freqs_wrapper.freqs.device != device:
-            self.freqs_wrapper.freqs = self.freqs_wrapper.freqs.to(device)
 
         if y is not None:
             x = [torch.cat([u, v], dim=0) for u, v in zip(x, y)]
@@ -639,7 +618,7 @@ class WanModel(ModelMixin, ConfigMixin):
             e=e0,
             seq_lens=seq_lens,
             grid_sizes=grid_sizes,
-            freqs=self.freqs_wrapper,
+            freqs=self.freqs,
             context=context,
             context_lens=context_lens,
         )

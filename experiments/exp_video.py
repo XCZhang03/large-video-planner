@@ -51,7 +51,9 @@ class VideoPredictionExperiment(BaseLightningExperiment):
         robocasa=RobosuiteDataset,
         mimicgen=RobosuiteDataset,
         dexmimicgen=RobosuiteDataset,
-        libero=RobosuiteDataset
+        libero=RobosuiteDataset,
+        libero_pretrain=RobosuiteDataset,
+        libero_eval=RobosuiteDataset,
         # austin_buds=OpenXVideoDataset,
         # austin_sailor=OpenXVideoDataset,
         # austin_sirius=OpenXVideoDataset,

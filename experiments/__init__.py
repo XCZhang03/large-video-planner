@@ -10,6 +10,7 @@ from .process_data import ProcessDataExperiment
 # each key has to be a yaml file under '[project_root]/configurations/experiment' without .yaml suffix
 exp_registry = dict(
     exp_video=VideoPredictionExperiment,
+    exp_video_fsdp=VideoPredictionExperiment,
     process_data=ProcessDataExperiment,
 )
 

@@ -3,10 +3,10 @@ defaults:
   - _self_
 
 data_root: "/workspace/fan/xc/icml_wm/openpi/examples/libero" # dataset folder location e.g. ~/data/something_something_v2
-metadata_path: /workspace/fan/xc/icml_wm/large-video-planner/data/meta_data/libero_icml/libero_task4_oracle_100_balanced.csv # a csv / json file that lists the entries for the dataset, should be a file path relative to data_root.
+metadata_path: /workspace/fan/xc/icml_wm/large-video-planner/data/meta_data/libero_icml/libero_task4_eval_hard.csv # a csv / json file that lists the entries for the dataset, should be a file path relative to data_root.
 load_prompt_embed: true # whether to load a raw embed tensor instead of running language model online. Require a field `prompt_embed_path` in csv
 
-trim_mode: "random_cut" # one of ["speedup", "random_cut"], specify how do we handle a video that's too long
+trim_mode: "discard" # one of ["speedup", "random_cut"], specify how do we handle a video that's too long
 pad_mode: "discard"
 
 id_token: "Generate a video of the robot"

@@ -98,7 +98,7 @@ class SpaceEfficientWandbLogger(WandbLogger):
         self.expiration_days = expiration_days
         self._last_artifacts = []
         # Optional directory to mirror checkpoints locally via symlinks instead of uploading
-        self._mirror_ckpt_dir = Path(f"data/outputs/checkpoint_links/{self.experiment.entity}/{self.experiment.project}")
+        self._mirror_ckpt_dir = Path(f"outputs/checkpoint_links/{self.experiment.entity}/{self.experiment.project}")
 
     def _scan_and_log_checkpoints(self, checkpoint_callback: ModelCheckpoint) -> None:
         import wandb

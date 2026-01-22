@@ -41,6 +41,10 @@ class WanImageToVideo(WanTextToVideo):
         self.clip = clip
         self.clip_normalize = clip_transform.transforms[-1]
 
+    def build_metrics(self):
+        self.metric = None
+        return
+
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(
             [
@@ -81,8 +85,8 @@ class WanImageToVideo(WanTextToVideo):
         return self.clip.visual(videos, use_31_block=True)
 
     @torch.no_grad()
-    def prepare_embeds(self, batch):
-        batch = super().prepare_embeds(batch)
+    def prepare_embeds(self, batch, **kwargs):
+        batch = super().prepare_embeds(batch, **kwargs)
 
         videos = batch["videos"]
         images = videos[:, :1]
@@ -143,30 +147,4 @@ class WanImageToVideo(WanTextToVideo):
 
         return batch
 
-    def visualize(self, video_pred, batch):
-        bbox_render = batch["bbox_render"]  # b, 2, h, w for first and last frame
-        has_bbox = batch["has_bbox"]  # b, 2 for first and last frame
-        video_gt = batch["videos"]  # b, t, 3, h, w
-
-        alpha = 0.4
-        l = video_gt.shape[1] // 4
-
-        # Apply green bbox overlay with transparency to first frame if has_bbox for first frame
-        mask = has_bbox[:, 0].bool()
-        green = torch.zeros_like(video_gt[mask, :1])
-        green[:, :, 1] = 1.0
-        if mask.any():
-            bbox = bbox_render[:, None, 0:1][mask] * alpha  # b', 1, 1, h, w
-            video_gt[mask, :l] = (1 - bbox) * video_gt[mask, :l] + bbox * green
-
-        # Apply green bbox overlay with transparency to last frame if has_bbox for last frame
-        mask = has_bbox[:, 1].bool()
-        green = torch.zeros_like(video_gt[mask, :1])
-        green[:, :, 1] = 1.0
-        if mask.any():
-            bbox = bbox_render[:, None, 1:2][mask] * alpha  # b', 1, 1, h, w
-            video_gt[mask, -l:] = (1 - bbox) * video_gt[mask, -l:] + bbox * green
-
-        batch["videos"] = video_gt
-
-        return super().visualize(video_pred, batch)
+    

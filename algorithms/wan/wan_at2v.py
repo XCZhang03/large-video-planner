@@ -269,8 +269,8 @@ class WanActionTextToVideo(WanTextToVideo):
         video_pred_lat = torch.randn_like(video_lat)
         if self.lang_guidance:
             neg_prompt_embeds = batch["negative_prompt_embeds"]
-        if pbar is None:
-            pbar = tqdm(range(len(self.inference_timesteps)), desc="Sampling")
+        # if pbar is None:
+        #     pbar = tqdm(range(len(self.inference_timesteps)), desc="Sampling")
         for t in self.inference_timesteps:
             if self.diffusion_forcing.enabled:
                 video_pred_lat[:, :, :hist_tokens] = video_lat[:, :, :hist_tokens]
@@ -331,7 +331,7 @@ class WanActionTextToVideo(WanTextToVideo):
             )
 
             video_pred_lat = self.remove_noise(flow_pred, t, video_pred_lat)
-            pbar.update(1)
+            # pbar.update(1)
 
         video_pred_lat[:, :, :hist_tokens] = video_lat[:, :, :hist_tokens]
 

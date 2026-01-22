@@ -37,30 +37,38 @@ class RobosuiteDataset(CondVideoDataset):
 
     # Override or add any methods specific to RobosuiteDataset if necessary
     def download(self):
-        video_dirs = list(self.data_root.glob("*icml*/"))
-        if len(video_dirs) == 0:
-            raise ValueError(f"No dataset directories found in {self.data_root} for RobosuiteDataset.")
-        video_dirs = [ d for d in video_dirs if filter_path(d)]
-        print(f"Found {len(video_dirs)} dataset directories in {self.data_root}.")
+        # video_dirs = list(self.data_root.glob("*icml*/"))
+        # if len(video_dirs) == 0:
+        #     raise ValueError(f"No dataset directories found in {self.data_root} for RobosuiteDataset.")
+        # video_dirs = [ d for d in video_dirs if filter_path(d)]
+        # print(f"Found {len(video_dirs)} dataset directories in {self.data_root}.")
 
-        mp4_files = []
-        for video_dir in video_dirs:
-            mp4_files.extend(list(video_dir.rglob("*.mp4")))
+        # mp4_files = []
+        # for video_dir in video_dirs:
+        #     mp4_files.extend(list(video_dir.rglob("*.mp4")))
 
+        # pairs = []
+        # mp4_set = set(mp4_files)
+        # split_data = self.data_root / "random_1000.csv"
+        split_data = "/workspace/fan/xc/icml_wm/openpi/examples/libero/top_100_balanced.csv"
+        split_data = pd.read_csv(split_data).to_dict(orient='records')
+        # video_path_list = Path("/workspace/fan/xc/icml_wm/openpi/examples/libero/libero_10_demo").rglob("*chunk*.mp4")
         pairs = []
-        mp4_set = set(mp4_files)
-
-        for p in mp4_files:
-            action_p = p.parent / "actions.npz"
-                
-            if filter_path(p) and filter_path(action_p):
-                pairs.append((p, action_p))
-
+        for row in split_data:
+        # for video_path in video_path_list:
+            video_path = self.data_root / row["video_path"]
+            action_path = Path(str(video_path).replace("agentview_chunk", "actions_chunk").replace('.mp4', '.npz'))
+            # if row["split"] == "validation":
+            #     pairs.append((video_path, action_path, "validation"))
+            pairs.append((video_path, action_path, "training"))
+            # pairs.append((video_path, action_path))
+        
         self.video_pairs = pairs
 
         records = []
         def process_pair(pair):
-            video_path, action_path = pair
+            video_path, action_path, split = pair
+            # video_path, action_path = pair
 
             if not video_path.exists():
                 print(f"Video file not found: {video_path}")
@@ -92,12 +100,15 @@ class RobosuiteDataset(CondVideoDataset):
                 return None
 
             return {
-                "video_path": str(video_path.relative_to(self.data_root)),
-                "cond_path": str(action_path.relative_to(self.data_root)),
+                "video_path": str(video_path.resolve()),
+                "cond_path": str(action_path.resolve()),
                 "fps": self.override_fps,
                 "n_frames": n_frames,
                 "width": 128,
                 "height": 128,
+                "split": split,
+                # "trim_start": 0,
+                # "trim_end": 49,
                 }
 
         max_workers = min(16, os.cpu_count() or 4)
@@ -113,6 +124,8 @@ class RobosuiteDataset(CondVideoDataset):
                 if rec is not None:
                     records_parallel.append(rec)
         records = records_parallel
+        import random
+        random.shuffle(records)
 
         metadata_path = self.data_root / self.metadata_path
         metadata_path.parent.mkdir(parents=True, exist_ok=True)

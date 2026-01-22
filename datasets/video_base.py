@@ -18,6 +18,9 @@ import decord  # isort:skip
 
 decord.bridge.set_bridge("torch")
 
+DEFAULT_PROMPT_EMBED_PATH = "/workspace/fan/xc/icml_wm/large-video-planner/data/meta_data/robosuite_default_prompt.pt"
+DEFAULT_NEGATIVE_PROMPT_EMBED_PATH = "/workspace/fan/xc/icml_wm/large-video-planner/data/meta_data/robosuite_default_neg_prompt.pt"
+
 
 class VideoDataset(Dataset):
     def __init__(self, cfg: DictConfig, split: str = "training") -> None:
@@ -72,9 +75,9 @@ class VideoDataset(Dataset):
             mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], inplace=True
         )
 
-        if self.trim_mode not in ["speedup", "random_cut"]:
+        if self.trim_mode not in ["speedup", "random_cut", "discard"]:
             raise ValueError(
-                f"Invalid trim_mode: {self.trim_mode}. Must be one of ['speedup', 'random_cut']."
+                f"Invalid trim_mode: {self.trim_mode}. Must be one of ['speedup', 'random_cut', 'discard']."
             )
         if self.pad_mode not in ["slowdown", "pad_last", "discard"]:
             raise ValueError(
@@ -387,6 +390,8 @@ class VideoDataset(Dataset):
             return False
         if n_frames < self._n_frames_in_src(fps) and self.pad_mode == "discard":
             return False
+        if n_frames > self._n_frames_in_src(fps) and self.trim_mode == "discard":
+            return False
 
         # then filter using stable_background, stable_brightness,
         # note that some datasets may not have these keys
@@ -435,17 +440,9 @@ class VideoDataset(Dataset):
         # if self.debug:
         #     return torch.zeros(self.max_text_tokens, 4096), self.max_text_tokens
         if negative:
-            if "negative_prompt_embed_path" not in record:
-                raise ValueError(
-                    "Record missing required key 'negative_prompt_embed_path'"
-                )
-            prompt_embed_path = self.data_root / record[
-                "negative_prompt_embed_path"
-            ]
+            prompt_embed_path = self.data_root / record.get("negative_prompt_embed_path", DEFAULT_NEGATIVE_PROMPT_EMBED_PATH)
         else:
-            if "prompt_embed_path" not in record:
-                raise ValueError("Record missing required key 'prompt_embed_path'")
-            prompt_embed_path = self.data_root / record["prompt_embed_path"]
+            prompt_embed_path = self.data_root / record.get("prompt_embed_path", DEFAULT_PROMPT_EMBED_PATH)
         prompt_embed = torch.load(
             prompt_embed_path, map_location="cpu", weights_only=True
         )

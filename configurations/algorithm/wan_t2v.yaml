@@ -25,9 +25,9 @@ diffusion_type: "continuous" # or "discrete"
 sample_solver: unipc
 sample_steps: 40
 sample_shift: 3.0
-lang_guidance: 3.0
+lang_guidance: 0.0
 neg_prompt: ""
-hist_guidance: 2.0 #2.0
+hist_guidance: 0.0 #2.0
 sliding_hist: 1 # use 2 latent frames as history when extending videos
 gradient_checkpointing_rate: 1.0  # gradient checkpointing blocks as a ratio of total blocks
 max_text_tokens: 512
@@ -39,10 +39,6 @@ logging:
   fps: ${dataset.fps}
   n_metrics_frames: null
   metrics:
-    - fvd
-    - is
-    - fid
-    - lpips
     - mse
     - psnr
     - ssim
