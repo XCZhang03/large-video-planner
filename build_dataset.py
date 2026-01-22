@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 from tqdm import tqdm
 import decord
+import numpy as np
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # split data contains the video_path and split ["training" or "validation"]
