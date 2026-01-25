@@ -85,7 +85,7 @@ class VideoMetric(nn.Module):
                 case VideoMetricType.MSE:
                     module = MeanSquaredError()
                 case VideoMetricType.SSIM:
-                    module = StructuralSimilarityIndexMeasure(data_range=1.0)
+                    module = StructuralSimilarityIndexMeasure(data_range=1.0, gaussian_kernel=False)
                 case VideoMetricType.PSNR:
                     module = PeakSignalNoiseRatio(data_range=1.0)
                 case _:
