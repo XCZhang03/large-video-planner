@@ -4,7 +4,8 @@
 
 先将数据整理到一个csv中，包含``video_path`` 和``split``两列。然后调用``build_dataset.py``将数据转换成我们需要的metadata格式。也可以不包含``split``，在``build_datase.py``中手动更改``split`` 是``training`` 或者 ``validation``
 
-对于每一个video data，参考``build_dataset.py``里面对应一个action path。在npz文件里的``actions`` key中即可
+对于每一个video data，参考``build_dataset.py``里面对应一个action path，actions在该npz文件里的``actions`` key中
+
 对于目前的模型，只支持长度为49的video chunk
 
 ***训练命令***
