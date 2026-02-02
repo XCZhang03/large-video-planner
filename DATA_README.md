@@ -10,7 +10,7 @@
 
 ``load``字段可以用对应wandb的runid，例如``ehwb3z4b``或者也可以直接使用对应的ckpt路径。ckpt会存在output当中，然后``outputs/checkpoint_links/run_id``存有对应wandb run的ckpt软连接。 记得加上``ehwb3z4b:model``其中model代表只load model而不是其他optimizer啥的state
 
-``dataset.metadata_path``就用上面``build_dataset``生成的metadata的csv路径
+``dataset.metadata_path``就用上面``build_dataset``生成的metadata的csv路径。metadata中的各个字段可以参考``build_dataset.csv``.
 
 ``name``就是这个run的wandb name
 
