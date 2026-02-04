@@ -83,7 +83,10 @@ class WanImageToVideo(WanTextToVideo):
     @torch.no_grad()
     def prepare_embeds(self, batch):
         batch = super().prepare_embeds(batch)
+        batch = self.prepare_image_embeds(batch)
+        return batch
 
+    def prepare_image_embeds(self, batch):
         videos = batch["videos"]
         images = videos[:, :1]
         has_bbox = batch["has_bbox"]  # [B, 2]

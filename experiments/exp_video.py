@@ -3,7 +3,7 @@ from torch.distributed.fsdp import MixedPrecision
 from torch.distributed.fsdp.wrap import ModuleWrapPolicy
 
 # from algorithms.cogvideo import CogVideoXImageToVideo, CogVideoXVAE
-from algorithms.wan import WanImageToVideo, WanTextToVideo, WanActionImageToVideo, WanActionTextToVideo
+from algorithms.wan import WanImageToVideo, WanTextToVideo, WanActionImageToVideo, WanActionTextToVideo, WanActionTextToVideoLowDim, WanActionTextToVideoCam
 from datasets.dummy import DummyVideoDataset
 from datasets.openx_base import OpenXVideoDataset
 from datasets.droid import DroidVideoDataset
@@ -17,23 +17,18 @@ from datasets.video_base import SingleFrameVideoDataset
 from datasets.robosuite import RobosuiteDataset
 from .exp_base import BaseLightningExperiment
 
-
-class VideoPredictionExperiment(BaseLightningExperiment):
-    """
-    A video prediction experiment
-    """
-
-    compatible_algorithms = dict(
-        # cogvideox_i2v=CogVideoXImageToVideo,
-        # cogvideox_vae=CogVideoXVAE,
-        wan_i2v=WanImageToVideo,
-        wan_t2v=WanTextToVideo,
-        wan_toy=WanImageToVideo,
-        wan_ai2v=WanActionImageToVideo,
-        wan_at2v=WanActionTextToVideo,
-    )
-
-    compatible_datasets = dict(
+compatible_algorithms = dict(
+    # cogvideox_i2v=CogVideoXImageToVideo,
+    # cogvideox_vae=CogVideoXVAE,
+    wan_i2v=WanImageToVideo,
+    wan_t2v=WanTextToVideo,
+    wan_toy=WanImageToVideo,
+    wan_ai2v=WanActionImageToVideo,
+    wan_at2v=WanActionTextToVideo,
+    wan_at2v_low_dim=WanActionTextToVideoLowDim,
+    wan_at2v_cam=WanActionTextToVideoCam,
+)
+compatible_datasets = dict(
         mixture=MixtureDataset,
         mixture_robot=MixtureDataset,
         mixture_robosuite=MixtureDataset,
@@ -51,6 +46,8 @@ class VideoPredictionExperiment(BaseLightningExperiment):
         robocasa=RobosuiteDataset,
         mimicgen=RobosuiteDataset,
         dexmimicgen=RobosuiteDataset,
+        libero=RobosuiteDataset,
+        libero_long=RobosuiteDataset,
         # austin_buds=OpenXVideoDataset,
         # austin_sailor=OpenXVideoDataset,
         # austin_sirius=OpenXVideoDataset,
@@ -74,6 +71,15 @@ class VideoPredictionExperiment(BaseLightningExperiment):
         # utaustin_mutex=OpenXVideoDataset,
         # viola=OpenXVideoDataset,
     )
+
+class VideoPredictionExperiment(BaseLightningExperiment):
+    """
+    A video prediction experiment
+    """
+
+    compatible_algorithms = compatible_algorithms
+
+    compatible_datasets = compatible_datasets
 
     def _build_strategy(self):
         from lightning.pytorch.strategies.fsdp import FSDPStrategy

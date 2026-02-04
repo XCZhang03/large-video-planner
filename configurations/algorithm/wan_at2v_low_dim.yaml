@@ -1,0 +1,9 @@
+defaults:
+  - wan_at2v_base
+  - _self_
+
+diffusion_forcing:
+  cond_mode: cross-attn
+  mode: independent_history
+
+action_dim: ${dataset.action_dim}

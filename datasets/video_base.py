@@ -18,6 +18,9 @@ import decord  # isort:skip
 
 decord.bridge.set_bridge("torch")
 
+DEFAULT_NEG_PROMPT_EMBED_PATH = "/n/holylabs/ydu_lab/Lab/zhangxiangcheng/code/SAILOR/large-video-planner/data/meta_data/robosuite_default_neg_prompt.pt"
+DEFAULT_PROMPT_EMBED_PATH = "/n/holylabs/ydu_lab/Lab/zhangxiangcheng/code/SAILOR/large-video-planner/data/meta_data/robosuite_default_prompt.pt"
+
 
 class VideoDataset(Dataset):
     def __init__(self, cfg: DictConfig, split: str = "training") -> None:
@@ -34,6 +37,9 @@ class VideoDataset(Dataset):
         self.height = cfg.height
         self.width = cfg.width
         self.n_frames = cfg.n_frames
+        self.total_frames = cfg.get("total_frames", cfg.n_frames)
+        if self.split == "validation":
+            self.n_frames = self.total_frames
         self.fps = cfg.fps
         self.trim_mode = cfg.trim_mode
         self.pad_mode = cfg.pad_mode
@@ -346,7 +352,7 @@ class VideoDataset(Dataset):
                 f"No record found for split '{self.split}', check dataset.test_percentage or dataset.filtering"
             )
 
-        random.Random(0).shuffle(records)
+        # random.Random(0).shuffle(records)
 
         records = [self.preprocess_record(record) for record in records]
 
@@ -435,17 +441,15 @@ class VideoDataset(Dataset):
         # if self.debug:
         #     return torch.zeros(self.max_text_tokens, 4096), self.max_text_tokens
         if negative:
-            if "negative_prompt_embed_path" not in record:
-                raise ValueError(
-                    "Record missing required key 'negative_prompt_embed_path'"
-                )
-            prompt_embed_path = self.data_root / record[
-                "negative_prompt_embed_path"
-            ]
+            prompt_embed_path = self.data_root / record.get(
+                "negative_prompt_embed_path",
+                DEFAULT_NEG_PROMPT_EMBED_PATH,
+            )
         else:
-            if "prompt_embed_path" not in record:
-                raise ValueError("Record missing required key 'prompt_embed_path'")
-            prompt_embed_path = self.data_root / record["prompt_embed_path"]
+            prompt_embed_path = self.data_root / record.get(
+                "prompt_embed_path",
+                DEFAULT_PROMPT_EMBED_PATH,
+            )
         prompt_embed = torch.load(
             prompt_embed_path, map_location="cpu", weights_only=True
         )

@@ -4,7 +4,7 @@ import math
 import torch
 import torch.amp as amp
 import torch.nn as nn
-from einops import repeat
+from einops import repeat, rearrange
 from torch.utils.checkpoint import checkpoint
 from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.models.modeling_utils import ModelMixin
@@ -33,9 +33,10 @@ class RopeFreqsWrapper:
         self.shift = shift
 
     def apply(self, x, grid_sizes):
+        self.freqs = self.freqs.to(device=x.device)
         if self.shift is not None:
             # apply pos embedding separately for video and cond
-            assert self.shift == False, "only support shift=False for now"
+            assert self.shift == 0, "only support shift zero for now"
             x1, x2 = x.chunk(2, dim=1)
             x1_applied, x2_applied = rope_apply(x1, grid_sizes, self.freqs), rope_apply(x2, grid_sizes, self.freqs, shift=self.shift)
             x = torch.cat([x1_applied, x2_applied], dim=1)
@@ -308,11 +309,12 @@ class WanAttentionBlock(nn.Module):
             grid_sizes(Tensor): Shape [B, 3], the second dimension contains (F, H, W)
             freqs(Tensor): Rope freqs, shape [1024, C / num_heads / 2]
         """
-        tokens_per_frame = x.shape[1] // e.shape[1]
-        # assert e.dtype == torch.float32
-        # with amp.autocast("cuda", dtype=torch.float32):
+        # tokens_per_frame = x.shape[1] // e.shape[1]
+        # # assert e.dtype == torch.float32
+        # # with amp.autocast("cuda", dtype=torch.float32):
         e = self.modulation[:, None] + e
-        e = repeat(e, "b f1 n c -> n b (f1 f2) c", f2=tokens_per_frame)
+        e = rearrange(e, "b f n c -> n b f c")
+        # e = repeat(e, "b f1 n c -> n b (f1 f2) c", f2=tokens_per_frame)
         # assert e[0].dtype == torch.float32
 
         # self-attention
@@ -545,7 +547,201 @@ class WanModel(ModelMixin, ConfigMixin):
                 indices.append(i)
         self.gradient_checkpointing_indices = tuple(indices)
 
-    def forward(
+    def forward_concat(self, x, t, context, seq_len, clip_fea=None, y=None, cond=None):
+        r"""
+        Forward pass through the diffusion model, where the condition is concatenated to the input as unified sequence.
+        """
+        assert cond is not None
+        n_frames = x.shape[2]
+        if self.model_type == "i2v":
+            assert clip_fea is not None and y is not None
+
+        if y is not None:
+            x = [torch.cat([u, v], dim=0) for u, v in zip(x, y)]
+            cond = [torch.cat([u, v], dim=0) for u, v in zip(cond, y)]
+
+        # embeddings
+        x = [self.patch_embedding(u.unsqueeze(0)) for u in x]
+        grid_sizes = torch.stack(
+            [torch.tensor(u.shape[2:], dtype=torch.long) for u in x]
+        )
+        x = [u.flatten(2).transpose(1, 2) for u in x]
+        seq_lens = torch.tensor([u.size(1) for u in x], dtype=torch.long)
+        # assert seq_lens.max() <= seq_len
+        assert all(u.size(1) == seq_len for u in x) # fixed video len
+
+        x_cond = [self.patch_embedding(u.unsqueeze(0)) for u in cond]
+        x_cond = [u.flatten(2).transpose(1, 2) for u in x_cond]
+        seq_lens = seq_lens * 2
+        x = torch.cat(
+            [
+                torch.cat([u, v, u.new_zeros(1, seq_len * 2  - u.size(1) - v.size(1), u.size(2))], dim=1) 
+                for u, v in zip(x, x_cond)
+            ]
+        )
+
+        # time embeddings
+        # with amp.autocast("cuda", dtype=torch.float32):
+        t_shape = tuple(t.shape)
+        e = self.time_embedding(
+            sinusoidal_embedding_1d(self.freq_dim, t.flatten()).type_as(x)
+        )
+        if t.ndim == 2:
+            e = e.unflatten(dim=0, sizes=t_shape)
+        else:
+            e = repeat(e, "b c -> b f c", f=n_frames)
+        e = torch.cat([e, e], dim=1)
+        # assert e.dtype == torch.float32 and e0.dtype == torch.float32
+
+        # share position embedding for condition frames
+        self.freqs_wrapper.shift = 0
+        e0 = self.time_projection(e).unflatten(-1, (6, self.dim))
+        e0 = repeat(e0, 'b f1 n c -> b (f1 f2) n c', f2=(x.shape[1] // e0.shape[1]))
+
+        # context
+        context_lens = None
+        context = self.text_embedding(
+            torch.stack(
+                [
+                    torch.cat([u, u.new_zeros(self.text_len - u.size(0), u.size(1))])
+                    for u in context
+                ]
+            )
+        )
+
+        if clip_fea is not None:
+            context_clip = self.img_emb(clip_fea)  # bs x 257 x dim
+            context = torch.concat([context_clip, context], dim=1)
+
+        # arguments
+        kwargs = dict(
+            e=e0,
+            seq_lens=seq_lens,
+            grid_sizes=grid_sizes,
+            freqs=self.freqs_wrapper,
+            context=context,
+            context_lens=context_lens,
+        )
+
+        for i, block in enumerate(self.blocks):
+            block = partial(block, **kwargs)
+            if i in self.gradient_checkpointing_indices:
+                x = checkpoint(block, x, use_reentrant=False)
+            else:
+                x = block(x)
+
+        # head
+        x = self.head(x, e)
+
+        x = x.chunk(2, dim=1)[0]
+
+        # unpatchify
+        x = self.unpatchify(x, grid_sizes)
+        return torch.stack(x)
+    
+    def forward_concat_cam(self, x, t, context, seq_len, clip_fea=None, y=None, cond=None, cond_mode=None):
+        r"""
+        Forward pass through the diffusion model, where the condition is concatenated to the input as unified sequence.
+        """
+        assert cond is not None
+        robot_cond = cond['robot_cond_lat']
+        cam_cond = cond['cam_cond_lat']
+        robot_cond_mode, cam_cond_mode = cond_mode.split("+")
+
+        n_frames = x.shape[2]
+        if self.model_type == "i2v":
+            assert clip_fea is not None and y is not None
+
+        if y is not None:
+            x = [torch.cat([u, v], dim=0) for u, v in zip(x, y)]
+            robot_cond = [torch.cat([u, v], dim=0) for u, v in zip(robot_cond, y)]
+
+        # embeddings
+        x = [self.patch_embedding(u.unsqueeze(0)) for u in x]
+        grid_sizes = torch.stack(
+            [torch.tensor(u.shape[2:], dtype=torch.long) for u in x]
+        )
+        x = [u.flatten(2).transpose(1, 2) for u in x]
+        seq_lens = torch.tensor([u.size(1) for u in x], dtype=torch.long)
+        # assert seq_lens.max() <= seq_len
+        assert all(u.size(1) == seq_len for u in x) # fixed video len
+
+        x_cond = [self.patch_embedding(u.unsqueeze(0)) for u in robot_cond]
+        x_cond = [u.flatten(2).transpose(1, 2) for u in x_cond]
+        seq_lens = seq_lens * 2
+        x = torch.cat(
+            [
+                torch.cat([u, v, u.new_zeros(1, seq_len * 2  - u.size(1) - v.size(1), u.size(2))], dim=1) 
+                for u, v in zip(x, x_cond)
+            ]
+        )
+
+        # time embeddings
+        # with amp.autocast("cuda", dtype=torch.float32):
+        t_shape = tuple(t.shape)
+        e = self.time_embedding(
+            sinusoidal_embedding_1d(self.freq_dim, t.flatten()).type_as(x)
+        )
+        if t.ndim == 2:
+            e = e.unflatten(dim=0, sizes=t_shape)
+        else:
+            e = repeat(e, "b c -> b f c", f=n_frames)
+        e = torch.cat([e, e], dim=1)
+        # assert e.dtype == torch.float32 and e0.dtype == torch.float32
+        cam_cond = torch.cat([cam_cond, cam_cond], dim=1)
+
+        # share position embedding for condition frames
+        self.freqs_wrapper.shift = 0
+
+        e0 = self.time_projection(e).unflatten(-1, (6, self.dim))
+        e0 = repeat(e0, 'b f1 n c -> b (f1 f2) n c', f2=(x.shape[1] // e0.shape[1]))
+        if cam_cond_mode == 'global':
+            e0 = e0 + repeat(cam_cond, 'b f1 n c -> b (f1 f2) n c', f2=(x.shape[1] // cam_cond.shape[1]))
+        else:
+            e0 = e0 + cam_cond
+
+        # context
+        context_lens = None
+        context = self.text_embedding(
+            torch.stack(
+                [
+                    torch.cat([u, u.new_zeros(self.text_len - u.size(0), u.size(1))])
+                    for u in context
+                ]
+            )
+        )
+
+        if clip_fea is not None:
+            context_clip = self.img_emb(clip_fea)  # bs x 257 x dim
+            context = torch.concat([context_clip, context], dim=1)
+
+        # arguments
+        kwargs = dict(
+            e=e0,
+            seq_lens=seq_lens,
+            grid_sizes=grid_sizes,
+            freqs=self.freqs_wrapper,
+            context=context,
+            context_lens=context_lens,
+        )
+
+        for i, block in enumerate(self.blocks):
+            block = partial(block, **kwargs)
+            if i in self.gradient_checkpointing_indices:
+                x = checkpoint(block, x, use_reentrant=False)
+            else:
+                x = block(x)
+
+        # head
+        x = self.head(x, e)
+
+        x = x.chunk(2, dim=1)[0]
+
+        # unpatchify
+        x = self.unpatchify(x, grid_sizes)
+        return torch.stack(x)
+
+    def forward_embed(
         self,
         x,
         t,
@@ -554,6 +750,104 @@ class WanModel(ModelMixin, ConfigMixin):
         clip_fea=None,
         y=None,
         cond=None,
+    ):
+        r"""
+        Forward pass through the diffusion model, where the condition is provided as time embeddings.
+        """
+        assert cond is not None
+        n_frames = x.shape[2]
+        if self.model_type == "i2v":
+            assert clip_fea is not None and y is not None
+        # params
+        device = self.patch_embedding.weight.device
+        if self.freqs_wrapper.freqs.device != device:
+            self.freqs_wrapper.freqs = self.freqs_wrapper.freqs.to(device)
+
+        if y is not None:
+            x = [torch.cat([u, v], dim=0) for u, v in zip(x, y)]
+
+        # embeddings
+        x = [self.patch_embedding(u.unsqueeze(0)) for u in x]
+        grid_sizes = torch.stack(
+            [torch.tensor(u.shape[2:], dtype=torch.long) for u in x]
+        )
+        x = [u.flatten(2).transpose(1, 2) for u in x]
+        seq_lens = torch.tensor([u.size(1) for u in x], dtype=torch.long)
+        assert seq_lens.max() <= seq_len
+
+        
+        x = torch.cat(
+            [
+                torch.cat([u, u.new_zeros(1, seq_len - u.size(1), u.size(2))], dim=1)
+                for u in x
+            ]
+        )
+
+        # time embeddings
+        # with amp.autocast("cuda", dtype=torch.float32):
+        t_shape = tuple(t.shape)
+        e = self.time_embedding(
+            sinusoidal_embedding_1d(self.freq_dim, t.flatten()).type_as(x)
+        )
+        if t.ndim == 2:
+            e = e.unflatten(dim=0, sizes=t_shape)
+        else:
+            e = repeat(e, "b c -> b f c", f=n_frames)
+        e0 = self.time_projection(e).unflatten(-1, (6, self.dim))
+
+        # add the action condition as time embedding
+        e = e + cond[0]
+        e0 = e0 + cond[1]
+        # assert e.dtype == torch.float32 and e0.dtype == torch.float32
+        e0 = repeat(e0, 'b f1 n c -> b (f1 f2) n c', f2=(x.shape[1] // e0.shape[1]))
+
+        # context
+        context_lens = None
+        context = self.text_embedding(
+            torch.stack(
+                [
+                    torch.cat([u, u.new_zeros(self.text_len - u.size(0), u.size(1))])
+                    for u in context
+                ]
+            )
+        )
+
+        if clip_fea is not None:
+            context_clip = self.img_emb(clip_fea)  # bs x 257 x dim
+            context = torch.concat([context_clip, context], dim=1)
+
+        # arguments
+        kwargs = dict(
+            e=e0,
+            seq_lens=seq_lens,
+            grid_sizes=grid_sizes,
+            freqs=self.freqs_wrapper,
+            context=context,
+            context_lens=context_lens,
+        )
+
+        for i, block in enumerate(self.blocks):
+            block = partial(block, **kwargs)
+            if i in self.gradient_checkpointing_indices:
+                x = checkpoint(block, x, use_reentrant=False)
+            else:
+                x = block(x)
+
+        # head
+        x = self.head(x, e)
+
+        # unpatchify
+        x = self.unpatchify(x, grid_sizes)
+        return torch.stack(x)
+
+    def forward_vanilla(
+        self,
+        x,
+        t,
+        context,
+        seq_len,
+        clip_fea=None,
+        y=None,
     ):
         r"""
         Forward pass through the diffusion model
@@ -577,10 +871,6 @@ class WanModel(ModelMixin, ConfigMixin):
             List[Tensor]:
                 List of denoised video tensors with original input shapes [C_out, F, H / 8, W / 8]
         """
-        concat_cond = False
-        if cond is not None:
-            concat_cond = True
-        
         n_frames = x.shape[2]
         if self.model_type == "i2v":
             assert clip_fea is not None and y is not None
@@ -591,8 +881,6 @@ class WanModel(ModelMixin, ConfigMixin):
 
         if y is not None:
             x = [torch.cat([u, v], dim=0) for u, v in zip(x, y)]
-            if concat_cond:
-                cond = [torch.cat([u, v], dim=0) for u, v in zip(cond, y)]
 
         # embeddings
         x = [self.patch_embedding(u.unsqueeze(0)) for u in x]
@@ -601,26 +889,15 @@ class WanModel(ModelMixin, ConfigMixin):
         )
         x = [u.flatten(2).transpose(1, 2) for u in x]
         seq_lens = torch.tensor([u.size(1) for u in x], dtype=torch.long)
-        # assert seq_lens.max() <= seq_len
-        assert all(u.size(1) == seq_len for u in x)
+        assert seq_lens.max() <= seq_len
 
-        if concat_cond:
-            x_cond = [self.patch_embedding(u.unsqueeze(0)) for u in cond]
-            x_cond = [u.flatten(2).transpose(1, 2) for u in x_cond]
-            seq_lens = seq_lens * 2
-            x = torch.cat(
-                [
-                    torch.cat([u, v, u.new_zeros(1, seq_len * 2  - u.size(1) - v.size(1), u.size(2))], dim=1) 
-                    for u, v in zip(x, x_cond)
-                ]
-            )
-        else:
-            x = torch.cat(
-                [
-                    torch.cat([u, u.new_zeros(1, seq_len - u.size(1), u.size(2))], dim=1)
-                    for u in x
-                ]
-            )
+        
+        x = torch.cat(
+            [
+                torch.cat([u, u.new_zeros(1, seq_len - u.size(1), u.size(2))], dim=1)
+                for u in x
+            ]
+        )
 
         # time embeddings
         # with amp.autocast("cuda", dtype=torch.float32):
@@ -632,10 +909,8 @@ class WanModel(ModelMixin, ConfigMixin):
             e = e.unflatten(dim=0, sizes=t_shape)
         else:
             e = repeat(e, "b c -> b f c", f=n_frames)
-        if concat_cond:
-            e = torch.cat([e, e], dim=1)
-            self.freqs_wrapper.shift = False
         e0 = self.time_projection(e).unflatten(-1, (6, self.dim))
+        e0 = repeat(e0, 'b f1 n c -> b (f1 f2) n c', f2=(x.shape[1] // e0.shape[1]))
         # assert e.dtype == torch.float32 and e0.dtype == torch.float32
 
         # context
@@ -673,12 +948,43 @@ class WanModel(ModelMixin, ConfigMixin):
         # head
         x = self.head(x, e)
 
-        if concat_cond:
-            x = x.chunk(2, dim=1)[0]
-
         # unpatchify
         x = self.unpatchify(x, grid_sizes)
         return torch.stack(x)
+    
+    def forward(
+        self,
+        x,
+        t,
+        context,
+        seq_len,
+        clip_fea=None,
+        y=None,
+        cond=None,
+        cond_mode=None,
+    ):
+        if cond_mode in ['channel', 'cross-attn']:
+            assert cond is None
+            return self.forward_vanilla(
+                x, t, context, seq_len, clip_fea, y
+            )
+        elif cond_mode == 'concat':
+            assert cond is not None
+            return self.forward_concat(
+                x, t, context, seq_len, clip_fea, y, cond
+            )
+        elif cond_mode == 'embed':
+            assert cond is not None
+            return self.forward_embed(
+                x, t, context, seq_len, clip_fea, y, cond
+            )
+        elif cond_mode.startswith('concat+'):
+            assert cond is not None
+            return self.forward_concat_cam(
+                x, t, context, seq_len, clip_fea, y, cond, cond_mode
+            )
+        else:
+            raise ValueError(f"cond_mode {cond_mode} not recognized")
 
     def unpatchify(self, x, grid_sizes):
         r"""

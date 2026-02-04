@@ -1,6 +1,6 @@
 from typing import Dict, List
 from torch import nn, Tensor
-from torchmetrics.image.lpip import NoTrainLpips
+from torchmetrics.image.lpip import _NoTrainLpips as NoTrainLpips
 from torchmetrics.image.fid import NoTrainInceptionV3
 from utils.torch_utils import freeze_model
 from utils.print_utils import suppress_warnings

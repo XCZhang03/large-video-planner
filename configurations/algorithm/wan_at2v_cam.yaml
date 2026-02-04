@@ -1,0 +1,8 @@
+defaults:
+  - wan_at2v_base
+  - _self_
+
+diffusion_forcing:
+  cond_mode: concat+ray-encoding
+  mode: independent_history
+  normalization: "none" # none, first, mean

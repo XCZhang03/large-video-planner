@@ -64,5 +64,13 @@ msgpack==1.1.2  # For message serialization
 pyzmq==27.1.0  # For ZeroMQ (used in serving)
 pydantic
 
-# Optional: Gradio for Demos
+# Optional: Gradio for Demos (no longer used by default server)
 gradio==5.11.0
+
+# WebSocket server/client
+websockets==12.0
+
+# metrics 
+pyiqa==0.1.10
+torchmetrics==1.8.2
+openai-clip

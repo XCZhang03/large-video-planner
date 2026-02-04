@@ -10,6 +10,7 @@ from .cond_video import CondVideoDataset
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
+import random
 
 
 def filter_path(path: Path) -> bool:
@@ -50,7 +51,7 @@ class RobosuiteDataset(CondVideoDataset):
         pairs = []
         mp4_set = set(mp4_files)
 
-        for p in mp4_files:
+        for ind, p in enumerate(mp4_files):
             if p.stem.endswith("_pose"):
                 continue
             pose_p = p.with_name(f"{p.stem}_pose{p.suffix}")
@@ -59,13 +60,16 @@ class RobosuiteDataset(CondVideoDataset):
                 continue
                 
             if filter_path(p) and filter_path(pose_p):
-                pairs.append((p, pose_p))
+                if ind % int(1 / self.test_percentage) == 0:
+                    pairs.append((p, pose_p, "validation"))
+                else:
+                    pairs.append((p, pose_p, "training"))
 
         self.video_pairs = pairs
 
         records = []
         def process_pair(pair):
-            video_path, pose_path = pair
+            video_path, pose_path, split = pair
 
             if not video_path.exists():
                 print(f"Video file not found: {video_path}")
@@ -118,7 +122,7 @@ class RobosuiteDataset(CondVideoDataset):
                 rec = f.result()
                 if rec is not None:
                     records_parallel.append(rec)
-        records = records_parallel
+        records = random.shuffle(records_parallel)
 
         metadata_path = self.data_root / self.metadata_path
         metadata_path.parent.mkdir(parents=True, exist_ok=True)

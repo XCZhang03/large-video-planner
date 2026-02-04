@@ -1,0 +1,8 @@
+defaults:
+  - robosuite
+  - _self_
+
+data_root: /n/holylabs/ydu_lab/Lab/zhangxiangcheng/code/SAILOR/env_repos/LIBERO/libero/datasets # dataset folder location e.g. ~/data/something_something_v2
+metadata_path: /n/holylabs/ydu_lab/Lab/zhangxiangcheng/code/SAILOR/env_repos/LIBERO/libero/datasets/libero_90_std_0.2_224_224_chunk80_pos_len80/metadata.csv
+
+total_frames: 57 # 3.5s for 16fps

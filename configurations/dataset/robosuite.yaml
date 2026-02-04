@@ -10,8 +10,8 @@ trim_mode: "random_cut" # one of ["speedup", "random_cut"], specify how do we ha
 pad_mode: "discard"
 
 id_token: "Generate a video of the robot"
-width: 640
-height: 384
+width: 448
+height: 448
 
 filtering:
   disable: false
@@ -19,8 +19,9 @@ filtering:
 download:
   override_fps: 20
 
-n_frames: 41
+n_frames: 33
 fps: 16
+action_dim: 7
 
 auto_download: false
 

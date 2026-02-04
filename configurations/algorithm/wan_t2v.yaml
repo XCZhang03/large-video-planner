@@ -36,17 +36,15 @@ logging:
   loss_freq: 1
   video_freq: 1000
   video_type: single # grid or single
+  num_log_video_batches: 4
   fps: ${dataset.fps}
   n_metrics_frames: null
   metrics:
-    - fvd
-    - is
-    - fid
-    - lpips
     - mse
     - psnr
     - ssim
   metrics_batch_size: 16
+  split_panel: true
 
 serving:
   port: 6688
