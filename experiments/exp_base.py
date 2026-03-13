@@ -149,6 +149,7 @@ class BasePytorchExperiment(BaseExperiment):
                 num_workers=min(os.cpu_count(), self.cfg.training.data.num_workers),
                 shuffle=shuffle,
                 persistent_workers=True,
+                pin_memory=True,
             )
         else:
             return None
@@ -167,6 +168,7 @@ class BasePytorchExperiment(BaseExperiment):
                 num_workers=min(os.cpu_count(), self.cfg.validation.data.num_workers),
                 shuffle=shuffle,
                 persistent_workers=True,
+                pin_memory=True,
             )
         else:
             return None
@@ -332,6 +334,7 @@ class BaseLightningExperiment(BasePytorchExperiment):
             self.algo,
             dataloaders=self._build_validation_loader(),
             ckpt_path=self.ckpt_path,
+            weights_only=False
         )
 
     def test(self) -> None:

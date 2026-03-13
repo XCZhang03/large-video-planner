@@ -1,4 +1,5 @@
 import os
+import yaml
 from typing import Union, List, NamedTuple
 import PIL
 import numpy as np
@@ -79,12 +80,19 @@ class VideoPredictionPipeline:
         cfg_path,
         checkpoint_path,
         device="cuda",
-        dtype=torch.bfloat16
-    ):  
+        dtype=torch.bfloat16,
+        overrides=None,
+    ):
         self.device = device
         self.dtype = dtype
         self.cfg_path = Path(cfg_path)
         self.root_cfg = OmegaConf.load(cfg_path)
+
+        # update cfg with overrides list (e.g. ["algorithm.hist_guidance=0.5", "algorithm.scale=1"])
+        for override in (overrides or []):
+            k, v = override.split("=", 1)
+            OmegaConf.update(self.root_cfg, k, yaml.safe_load(v), merge=True)
+
         OmegaConf.resolve(self.root_cfg)
         print(OmegaConf.to_yaml(self.root_cfg))
         
@@ -109,11 +117,12 @@ class VideoPredictionPipeline:
         FPS: {self.dataset.fps}, override_fps: {self.dataset.cfg.download.get("override_fps", "None")},
         Algorithm: {self.algorithm_name}, cond_mode: {self.algorithm.diffusion_forcing.cond_mode},
         context_len: {self.algorithm.context_len}, n_frames: {self.algorithm.n_frames}, max_frames: {self.algorithm.max_frames}, hist_len: {self.algorithm.hist_len}
+        hist_guidance: {self.algorithm.hist_guidance}
         ############################################
         """
 
     @staticmethod
-    def from_pretrained(load_id, entity="awesome-wm", project="wan_at2v"):
+    def from_pretrained(load_id, entity="awesome-wm", project="wan_at2v", overrides=None):
         if is_run_id(load_id):
             run_path = f"{entity}/{project}/{load_id}"
             checkpoint_path = retrive_checkpoint(
@@ -134,6 +143,7 @@ class VideoPredictionPipeline:
         return VideoPredictionPipeline(
             cfg_path=str(cfg_path),
             checkpoint_path=str(checkpoint_path),
+            overrides=overrides,
         )
 
     def __call__(
@@ -158,15 +168,15 @@ class VideoPredictionPipeline:
     def postprocess(self, pred_videos, return_type="pil"):
         from utils.video_utils import pad_video
         pred_frames = pred_videos[self.algorithm.context_len:]  # (T_pred, C, H, W)
-        pred_frames = pred_frames.cpu().detach().numpy()
+        pred_frames = (pred_frames.cpu().detach().numpy() * 255.0).astype(np.uint8)  # (T, C, H, W)
         pred_frame_list = [pred_frames[i].transpose(1, 2, 0) for i in range(pred_frames.shape[0])]
         pred_panels_list = [[frame[: frame.shape[0] // 2, : frame.shape[1] // 2],
                             frame[: frame.shape[0] // 2, frame.shape[1] // 2 :],
                             frame[frame.shape[0] // 2 :, : frame.shape[1] // 2],
                             frame[frame.shape[0] // 2 :, frame.shape[1] // 2 :],] for frame in pred_frame_list]
         if return_type == "pil":
-            pred_frame_list = [PIL.Image.fromarray((frame * 255).astype(np.uint8)) for frame in pred_frame_list]
-            pred_panels_list = [[PIL.Image.fromarray((panel * 255).astype(np.uint8)) for panel in panels] for panels in pred_panels_list]
+            pred_frame_list = [PIL.Image.fromarray(frame) for frame in pred_frame_list]
+            pred_panels_list = [[PIL.Image.fromarray(panel) for panel in panels] for panels in pred_panels_list]
         elif return_type == "np":
             pass
         else:
@@ -228,16 +238,20 @@ class VideoPredictionPipeline:
 
 
 if __name__ == "__main__":
-    pipeline = VideoPredictionPipeline.from_pretrained("d2rp721m")
+    overrides = [
+        "algorithm.hist_guidance=1.0",
+    ]
+    pipeline = VideoPredictionPipeline.from_pretrained("9l71tu0f",overrides=overrides)
+    
     import imageio
-    video_path = "/n/holylabs/ydu_lab/Lab/zhangxiangcheng/code/SAILOR/env_repos/LIBERO/libero/datasets/libero_90_std_0.2_224_224_chunk80_pos_len80/KITCHEN_SCENE10_close_the_top_drawer_of_the_cabinet_demo/demo_9/merged_seg1.mp4"
-    pose_video_path = "/n/holylabs/ydu_lab/Lab/zhangxiangcheng/code/SAILOR/env_repos/LIBERO/libero/datasets/libero_90_std_0.2_224_224_chunk80_pos_len80/KITCHEN_SCENE10_close_the_top_drawer_of_the_cabinet_demo/demo_9/merged_seg1_pose.mp4"
+    video_path = "/net/holy-isilon/ifs/rc_labs/ydu_lab/xczhang/workspace/SAILOR/env_repos/LIBERO/libero/datasets/libero_10_replay/args_std_0.1_224_224_chunk21_len101/LIVING_ROOM_SCENE6_put_the_white_mug_on_the_plate_and_put_the_chocolate_pudding_to_the_right_of_the_plate_demo/demo_7/merged_seg1.mp4"
+    pose_video_path = "/net/holy-isilon/ifs/rc_labs/ydu_lab/xczhang/workspace/SAILOR/env_repos/LIBERO/libero/datasets/libero_10_replay/args_std_0.1_224_224_chunk21_len101/LIVING_ROOM_SCENE6_put_the_white_mug_on_the_plate_and_put_the_chocolate_pudding_to_the_right_of_the_plate_demo/demo_7/merged_seg1.mp4"
 
     video_frames = imageio.v3.imread(video_path)
     pose_frames = imageio.v3.imread(pose_video_path)
-    history_frames = [PIL.Image.fromarray(video_frames[i]) for i in range(23)]
-    history_conds = [PIL.Image.fromarray(pose_frames[i]) for i in range(23)]
-    future_conds = [PIL.Image.fromarray(pose_frames[i]) for i in range(23, 63)]
+    history_frames = [PIL.Image.fromarray(video_frames[i]) for i in range(61)]
+    history_conds = [PIL.Image.fromarray(pose_frames[i]) for i in range(61)]
+    future_conds = [PIL.Image.fromarray(pose_frames[i]) for i in range(61, 81)]
     output = pipeline(
         history_frames=history_frames,
         history_conds=history_conds,

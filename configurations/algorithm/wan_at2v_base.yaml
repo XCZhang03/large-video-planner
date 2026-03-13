@@ -5,7 +5,7 @@ defaults:
 diffusion_forcing:
   mode: independent_history
 
-hist_len: 9
+hist_len: 21
 # hist_steps: [0, 4, 8, 12, 16, 17, 18, 19, 20]
 # n_frames: 37
 # max_frames: ${dataset.n_frames}

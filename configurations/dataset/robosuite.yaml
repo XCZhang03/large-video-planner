@@ -19,8 +19,8 @@ filtering:
 download:
   override_fps: 20
 
-n_frames: 33
-fps: 16
+n_frames: 41
+fps: 20
 action_dim: 7
 
 auto_download: false

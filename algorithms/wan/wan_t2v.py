@@ -125,11 +125,14 @@ class WanTextToVideo(BasePytorchAlgo):
         self.text_encoder = text_encoder
 
         # Initialize tokenizer
-        self.tokenizer = HuggingfaceTokenizer(
-            name=self.cfg.text_encoder.name,
-            seq_len=self.cfg.text_encoder.text_len,
-            clean="whitespace",
-        )
+        if not self.cfg.load_prompt_embed:
+            self.tokenizer = HuggingfaceTokenizer(
+                name=self.cfg.text_encoder.name,
+                seq_len=self.cfg.text_encoder.text_len,
+                clean="whitespace",
+            )
+        else:
+            self.tokenizer = None
 
         # Initialize VAE
         self.vae = (
@@ -197,7 +200,7 @@ class WanTextToVideo(BasePytorchAlgo):
                         metric_types,
                         split_batch_size=self.cfg.logging.metrics_batch_size,
                     ).eval()
-                    for _ in range(5 if self.cfg.logging.split_panel else 1)
+                    for _ in range(5 if self.cfg.logging.get("split_panel", False) else 1)
                 ]
             ).eval().requires_grad_(False)
     def configure_optimizers(self):
@@ -618,12 +621,12 @@ class WanTextToVideo(BasePytorchAlgo):
         if batch_idx % 10 == 0:
             import time
             print(f"[DEBUG] [Time] [{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}] [Batch] {batch_idx}", flush=True)
-        if batch_idx < self.cfg.logging.num_log_video_batches:
+        if batch_idx < self.cfg.logging.get("num_log_video_batches", 16):
             self.visualize(video_preds, video_gts, batch, batch_idx)
 
     def on_validation_epoch_end(self):
         metric_dict = self.metrics[0].log("prediction")
-        if self.cfg.logging.split_panel:
+        if self.cfg.logging.get("split_panel", False):
             for i in range(4):
                 panel_metric_dict = self.metrics[i + 1].log(f"panel_{i}")
                 metric_dict.update(panel_metric_dict)
@@ -650,7 +653,7 @@ class WanTextToVideo(BasePytorchAlgo):
             context_mask = context_mask[: self.cfg.logging.n_metrics_frames]
         # print("[DEBUG] [Len Metric Frames]", torch.sum(~context_mask).item(), flush=True)
         self.metrics[0](pred_videos, gt_videos, context_mask=context_mask)
-        if self.cfg.logging.split_panel:
+        if self.cfg.logging.get("split_panel", False):
             b, t, c, h, w = pred_videos.shape
             half_h = h // 2
             half_w = w // 2

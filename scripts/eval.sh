@@ -2,12 +2,12 @@
 module load python
 mamba activate ei_world_model
 python main.py \
-    resume=null \
-    load=xbk1muqp:model \
+    load=d2rp721m:model \
     cluster=fas_eval \
-    name=eval_long_dexmimicgen_pose \
-    dataset.metadata_path=/net/holy-isilon/ifs/rc_labs/ydu_lab/xczhang/DiffRL/dexmimicgen_dataset/dexmimicgen/datasets/replay_videos/metadata_20260130_065553.csv \
-    +dataset.total_frames=52 \
+    name=eval_libero10_pose \
+    dataset=libero \
+    wandb.project=wan_at2v_eval \
+    dataset.metadata_path=/n/holylabs/ydu_lab/Lab/zhangxiangcheng/code/SAILOR/env_repos/LIBERO/libero/datasets/metadata/metadata_20260126_232055.csv \
     algorithm=wan_at2v \
     algorithm.diffusion_forcing.cond_mode=concat \
     experiment.tasks=['validation'] \

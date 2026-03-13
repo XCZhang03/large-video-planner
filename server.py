@@ -163,10 +163,15 @@ class WMWebSocketServer:
 # 3) Entrypoint
 # =========================
 def main() -> None:
-    pipeline = VideoPredictionPipeline.from_pretrained("d2rp721m")
+    overrides = [
+        "algorithm.hist_guidance=0.0",
+        "algorithm.sample_steps=20",
+    ]
+    # pipeline = VideoPredictionPipeline.from_pretrained("ikswdu56")
+    pipeline = VideoPredictionPipeline.from_pretrained("9l71tu0f",overrides=overrides)
     cfg = ServerConfig(
         host=os.environ.get("HOST", "0.0.0.0"),
-        port=int(os.environ.get("PORT", "7860")),
+        port=int(os.environ.get("PORT", "7880")),
     )
 
     server = WMWebSocketServer(pipeline, cfg)

@@ -258,6 +258,7 @@ class WanActionTextToVideoBase(WanTextToVideo):
 
             # history guidance sampling:
             if hist_guidance and self.diffusion_forcing.enabled:
+                print(f"[DEBUG] [hist_guidance] {hist_guidance}")
                 no_hist_video_pred_lat = video_pred_lat.clone()
                 no_hist_video_pred_lat[:, :, :hist_tokens] = torch.randn_like(
                     no_hist_video_pred_lat[:, :, :hist_tokens]
@@ -348,9 +349,11 @@ class WanActionTextToVideoBase(WanTextToVideo):
         new_batch['videos'][:, :self.context_len] = batch['videos'][:, :self.context_len].clone()
         
         for step, (start_frame, end_frame) in enumerate(schedule):
+            import time
+            start = time.time()
             sliced_batch = self.slice_batch(new_batch, start_frame, end_frame)
             cur_video_pred = self.sample_seq(sliced_batch, **kwargs)
             # update the new_batch with the predicted frames
             new_batch['videos'][:, start_frame:end_frame] = cur_video_pred.clone()
-        
+            print(f"Sampling {start_frame}:{end_frame} took {time.time() - start:.2f} seconds.")
         return new_batch['videos']

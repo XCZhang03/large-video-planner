@@ -3,4 +3,5 @@ defaults:
   - _self_
 
 data_root: /n/holylabs/ydu_lab/Lab/zhangxiangcheng/code/SAILOR/env_repos/LIBERO/libero/datasets # dataset folder location e.g. ~/data/something_something_v2
-metadata_path: /n/holylabs/ydu_lab/Lab/zhangxiangcheng/code/SAILOR/env_repos/LIBERO/libero/datasets/metadata/metadata_20260125_210337.csv
+metadata_path: /n/holylabs/ydu_lab/Lab/zhangxiangcheng/code/SAILOR/env_repos/LIBERO/libero/datasets/metadata/metadata_20260210_004403.csv
+total_frames: 61
