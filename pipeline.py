@@ -122,7 +122,7 @@ class VideoPredictionPipeline:
         """
 
     @staticmethod
-    def from_pretrained(load_id, entity="awesome-wm", project="wan_at2v", overrides=None):
+    def from_pretrained(load_id, entity="awesome-wm", project="wan_at2v", overrides=None, **kwargs):
         if is_run_id(load_id):
             run_path = f"{entity}/{project}/{load_id}"
             checkpoint_path = retrive_checkpoint(
@@ -144,6 +144,7 @@ class VideoPredictionPipeline:
             cfg_path=str(cfg_path),
             checkpoint_path=str(checkpoint_path),
             overrides=overrides,
+            **kwargs,
         )
 
     def __call__(

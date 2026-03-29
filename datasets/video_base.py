@@ -53,13 +53,13 @@ class VideoDataset(Dataset):
         # trigger auto-download if not already downloaded
         trigger_download = False
         if not self.data_root.is_dir() or not (self.data_root / self.metadata_path).is_file():
-            # print(f"Dataset root folder {self.data_root} does not exist.")
-            if not self.auto_download:
-                raise ValueError(
-                    f"Attempting to automatically download the dataset since dataset root folder {self.data_root} does not exist. "
-                    "If this is the intended behavior, append `dataset.auto_download=True` in your command to pass this check."
-                )
-            trigger_download = True
+            print(f"Dataset root folder {self.data_root} does not exist.")
+            # if not self.auto_download:
+            #     raise ValueError(
+            #         f"Attempting to automatically download the dataset since dataset root folder {self.data_root} does not exist. "
+            #         "If this is the intended behavior, append `dataset.auto_download=True` in your command to pass this check."
+            #     )
+            # trigger_download = True
         if self.force_download:
             trigger_download = True
         if trigger_download:

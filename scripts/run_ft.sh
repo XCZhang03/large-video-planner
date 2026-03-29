@@ -2,17 +2,19 @@
 module load python
 mamba activate ei_world_model
 python main.py \
-    cluster=fas_h200 \
+    cluster=fas_ft \
     load=9l71tu0f:model \
-    +requeue=0 \
-    name=libero_pose_object \
+    name=libero_pose_sparse_object \
     algorithm=wan_at2v \
     dataset=libero \
-    experiment.training.checkpointing.every_n_train_steps=100 \
-    experiment.training.checkpointing.save_on_exception=true \
+    experiment.training.checkpointing.every_n_train_steps=50 \
+    experiment.training.checkpointing.save_on_exception=false \
+    experiment.training.max_epochs=10 \
+    experiment.validation.val_every_n_epoch=1 \
+    experiment.validation.val_every_n_step=null \
     algorithm.diffusion_forcing.cond_mode=concat \
     experiment.training.batch_size=4 \
-    experiment.training.optim.accumulate_grad_batches=2 \
+    experiment.training.optim.accumulate_grad_batches=4 \
     experiment.num_nodes=1 \
     dataset.n_frames=81 \
     dataset.total_frames=81 \

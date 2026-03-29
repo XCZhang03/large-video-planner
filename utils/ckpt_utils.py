@@ -108,7 +108,8 @@ def has_linked_checkpoint(run_path: str) -> bool:
 
 def retrive_checkpoint(
     run_path: str, checkpoint_dir: str, option: Literal["latest", "best"] = "latest"
-):
+):  
+    run_path = run_path.replace("_eval", "") # if it's an eval run, we want to load from the corresponding training run.
     file_name = Path(checkpoint_dir) / Path(run_path) / f"{option}.ckpt"
     if file_name.resolve().exists():
         return file_name.resolve()
