@@ -57,8 +57,8 @@ class CondVideoDataset(VideoDataset):
         output = {
             "videos": videos,
             "conds": conds,
-            "low_dim_conds": low_dim_conds,
-            "camera_poses": camera_poses,
+            # "low_dim_conds": low_dim_conds,
+            # "camera_poses": camera_poses,
             "video_metadata": video_metadata,
             "bbox_render": bbox_render,
             "has_bbox": has_bbox,
@@ -109,10 +109,10 @@ class CondVideoDataset(VideoDataset):
 
         video_path = self.data_root / record["video_path"]
         cond_path = self.data_root / record['cond_path']
-        low_dim_path = self.data_root / record['low_dim_path']
+        # low_dim_path = self.data_root / record['low_dim_path']
         video_reader = decord.VideoReader(uri=video_path.as_posix())
         cond_reader = decord.VideoReader(uri=cond_path.as_posix())
-        low_dim_cond_reader = np.load(low_dim_path.as_posix(), allow_pickle=True)
+        # low_dim_cond_reader = np.load(low_dim_path.as_posix(), allow_pickle=True)
 
         n_frames = len(video_reader)
         assert n_frames == len(cond_reader), "Video and cond length mismatch"
@@ -122,8 +122,10 @@ class CondVideoDataset(VideoDataset):
         indices = list(start + indices)
         frames = video_reader.get_batch(indices)
         cond_frames = cond_reader.get_batch(indices)
-        low_dim_conds = self.pad_actions(torch.from_numpy(low_dim_cond_reader['actions'][indices]).float()).contiguous()
-        camera_poses = self.load_camera_pose(low_dim_cond_reader)[indices]  # (n_frames, num_cams, pose_dim)
+        # low_dim_conds = self.pad_actions(torch.from_numpy(low_dim_cond_reader['actions'][indices]).float()).contiguous()
+        # camera_poses = self.load_camera_pose(low_dim_cond_reader)[indices]  # (n_frames, num_cams, pose_dim)
+        low_dim_conds = None
+        camera_poses = None
         # do some padding
         if len(frames) != self.n_frames:
             raise ValueError(

@@ -168,8 +168,8 @@ def main() -> None:
         "algorithm.sample_steps=20",
         "dataset.metadata_path=/net/holy-isilon/ifs/rc_labs/ydu_lab/xczhang/workspace/SAILOR/env_repos/LIBERO/libero/datasets/libero_object_replay/metadata.csv"
     ]
-    pipeline = VideoPredictionPipeline.from_pretrained("dv3a5yq4", overrides=overrides)
-    # pipeline = VideoPredictionPipeline.from_pretrained("9l71tu0f", overrides=overrides)
+    # pipeline = VideoPredictionPipeline.from_pretrained("dv3a5yq4", overrides=overrides)
+    pipeline = VideoPredictionPipeline.from_pretrained("9l71tu0f", overrides=overrides)
     cfg = ServerConfig(
         host=os.environ.get("HOST", "0.0.0.0"),
         port=int(os.environ.get("PORT", "7880")),

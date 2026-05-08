@@ -12,12 +12,14 @@ class WMEnv:
             env,
             empty_env,
             client: WMClient=None,
-            panel_cams: List[str]=["agentview", "birdview", "robot0_eye_in_hand", "sideview"]
+            panel_cams: List[str]=["agentview", "birdview", "robot0_eye_in_hand", "sideview"],
+            buffer_size: int=250
     ):
         self.env = env
         self.empty_env = empty_env
-        self.client = client if client is not None else WMClient()
+        self.client = client
         self.panel_cams = panel_cams
+        self.buffer_size = buffer_size
 
     def reset(self):
         # reset envs
@@ -26,8 +28,8 @@ class WMEnv:
         self.empty_env.copy_robot_state(self.env)
 
         # reset buffers
-        self.history_frames = deque(maxlen=160)
-        self.history_conds = deque(maxlen=160)
+        self.history_frames = deque(maxlen=self.buffer_size)
+        self.history_conds = deque(maxlen=self.buffer_size)
 
         # # add first frames
         # for _ in range(80):
@@ -60,15 +62,17 @@ class WMEnv:
         cond_frame = np.vstack([np.hstack(cond_frames[:2]), np.hstack(cond_frames[2:])])
         return cond_frame
 
-    def update_cond_buffer(self):
-        self.empty_env.copy_robot_state(self.env)
+    def update_cond_buffer(self, copy_state=True):
+        if copy_state:
+            self.empty_env.copy_robot_state(self.env)
         cond_frame = self.get_cond_frame()
         self.history_conds.append(cond_frame)
 
-    def step(self, action):
+    def step(self, action, copy_state=True):
         obs, reward, done, info = self.env.step(action)
+        self.empty_env.step(action)
         self.update_frame_buffer(obs)
-        self.update_cond_buffer()
+        self.update_cond_buffer(copy_state=copy_state)
         return obs, reward, done, info
     
     @contextmanager

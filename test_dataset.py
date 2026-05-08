@@ -13,18 +13,19 @@ def main(cfg: DictConfig):
     cfg.dataset.width = 64
     cfg.dataset.height = 64
     cfg.algorithm.diffusion_forcing.cond_mode = "concat+global"
+    cfg.dataset.metadata_path = "/net/holy-isilon/ifs/rc_labs/ydu_lab/xczhang/workspace/SAILOR/scratch_dir/robosuite_playback/metadata.csv"
 
     dataset = RobosuiteDataset(cfg.dataset, split="all")
     print(f"RobosuiteDataset instantiated, length {len(dataset)}.")
     data = dataset[0]
     print(f"Sample data keys: {list(data.keys())}")
-    # dl = torch.utils.data.DataLoader(
-    #     dataset,
-    #     batch_size=16,
-    #     shuffle=True,
-    #     num_workers=1,
-    # )
-    # batch = next(iter(dl))
+    dl = torch.utils.data.DataLoader(
+        dataset,
+        batch_size=16,
+        shuffle=True,
+        num_workers=1,
+    )
+    batch = next(iter(dl))
 
     # algorithm = WanActionTextToVideoCam(cfg.algorithm).to("cuda")
     # algorithm.configure_model()

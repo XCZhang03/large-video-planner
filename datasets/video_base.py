@@ -314,7 +314,8 @@ class VideoDataset(Dataset):
         Require these entries: "video_path", "caption", "height", "width", "n_frames", "fps"
         Optional entry: "split" - if present, will be used instead of test_percentage
         """
-
+        if not (self.data_root / self.metadata_path).is_file():
+            return []
         records = pd.read_csv(self.data_root / self.metadata_path, na_filter=False)
         records = records.to_dict("records")
         len_pre_filter = len(records)
